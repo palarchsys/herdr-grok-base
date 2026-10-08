@@ -1,4 +1,4 @@
-registre.sqlite
-registre.sqlite-journal
-projets/*
-!projets/.gitkeep
+registry.sqlite
+registry.sqlite-journal
+projects/*
+!projects/.gitkeep
