@@ -1,4 +1,4 @@
-# Format module.
+# Module format.
 
 ```
 id: <module>
@@ -10,13 +10,13 @@ imports: []
 events_in: []
 events_out: []
 forbidden:
-  - ecrire hors owns
-  - lire demandes configs agents verrous navigation
-  - appeler un agent
-  - ouvrir un tab
+  - write outside owns
+  - read requests configs agents locks rules
+  - call an agent
+  - open a tab
 ```
 
-Fichier : `modules/<module>/MODULE.md`.
-Id : `[a-z][a-z0-9-]{0,24}`.
-Export modifié = depth 2 au propriétaire. Pas d'edit voisin.
-`modules/<module>/PLAN.md` : seul fichier écrit par l'agent `<module>-plan`.
+File: `modules/<module>/MODULE.md`.
+Id: `[a-z][a-z0-9-]{0,24}`.
+Export change = depth 2 to the owner. No neighbor edit.
+`modules/<module>/PLAN.md`: only file written by agent `<module>-plan`.

@@ -1,17 +1,17 @@
-# Format agent.
+# Agent format.
 
 ```
-nom: <nom>
+name: <name>
 module: <module>
-config: <cle>
+config: <key>
 llm: grok-build
-tab: <id tab Herdr>
-pane: <id pane Herdr>
-worktree: <path rendu par herdr worktree create>
-debut: <epoch>
-fin:
+tab: <Herdr tab id>
+pane: <Herdr pane id>
+worktree: <path returned by herdr worktree create>
+start: <epoch>
+end:
 ```
 
-Fichier vivant : `agents/<nom>.md`.
-Purge : remplir `fin`, déplacer vers `agents/clos/<nom>-<epoch>.md`, ne pas réutiliser tab ni pane.
-Nom impl = `<module>`. Nom plan = `<module>-plan`.
+Live file: `agents/<name>.md`.
+Purge: set `end`, move to `agents/closed/<name>-<epoch>.md`, do not reuse tab or pane.
+Impl name = `<module>`. Plan name = `<module>-plan`.

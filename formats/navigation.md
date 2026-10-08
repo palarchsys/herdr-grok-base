@@ -1,15 +1,15 @@
-# Index. SQLite seul. Fichier : registre.sqlite. Schéma : formats/registre.sql.
+# Index. SQLite only. File: registry.sqlite. Schema: formats/registry.sql.
 
-Requêtes permises :
+Allowed queries:
 
 ```
-SELECT id FROM demandes WHERE hash='<hash>';
-SELECT path, ligne FROM symboles WHERE nom='<nom>';
-SELECT path FROM fichiers WHERE module='<module>';
-INSERT INTO verrous(path, agent, demande, expires_at) VALUES (...);
-DELETE FROM verrous WHERE path='<path>' OR expires_at < <epoch>;
+SELECT id FROM requests WHERE hash='<hash>';
+SELECT path, line FROM symbols WHERE name='<name>';
+SELECT path FROM files WHERE module='<module>';
+INSERT INTO locks(path, agent, request, expires_at) VALUES (...);
+DELETE FROM locks WHERE path='<path>' OR expires_at < <epoch>;
 ```
 
-`rg` seulement si `symboles` n'a pas le nom. `ast-grep` seulement après `done`, pour remplir `symboles`.
-Pas de `SELECT *`. Pas de scan de dossier.
-Worker ne touche pas la base.
+`rg` only if `symbols` has no name. `ast-grep` only after `done`, to fill `symbols`.
+No `SELECT *`. No directory scan.
+Worker does not touch the database.

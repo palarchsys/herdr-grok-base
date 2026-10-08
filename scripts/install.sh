@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installation idempotente. N'écrit pas dans ~/.grok.
+# Idempotent install. Does not write to ~/.grok.
 set -euo pipefail
 
 if [[ -r /etc/os-release ]]; then
@@ -7,28 +7,28 @@ if [[ -r /etc/os-release ]]; then
   . /etc/os-release
 fi
 if [[ "${VERSION_ID:-}" != "26.04" ]]; then
-  echo "Ubuntu 26.04 requis. Arrêt."
+  echo "Ubuntu 26.04 required. Stop."
   exit 1
 fi
 
 step() { echo "== $1"; }
 
 if command -v herdr >/dev/null 2>&1; then
-  step "herdr déjà installé"
+  step "herdr already installed"
 else
   step "install herdr"
   curl -fsSL https://herdr.dev/install.sh | sh
 fi
 
 if command -v grok >/dev/null 2>&1; then
-  step "grok déjà installé"
+  step "grok already installed"
 else
   step "install grok"
   curl -fsSL https://x.ai/cli/install.sh | bash
 fi
 
 if command -v grok >/dev/null 2>&1 && grok inspect >/dev/null 2>&1; then
-  step "grok déjà configuré, config laissée intacte"
+  step "grok already configured, config left intact"
 else
   step "grok login"
   grok login
@@ -36,9 +36,9 @@ fi
 
 if command -v herdr >/dev/null 2>&1; then
   if herdr integration list 2>/dev/null | grep -q grok; then
-    step "intégration grok déjà présente"
+    step "grok integration already present"
   else
-    step "intégration grok"
+    step "grok integration"
     herdr integration install grok
   fi
 fi
@@ -54,11 +54,11 @@ ${#missing[@]})); then
   sudo apt-get update
   sudo apt-get install -y "${missing[@]}"
 else
-  step "sqlite3 rg curl unzip déjà installés"
+  step "sqlite3 rg curl unzip already installed"
 fi
 
 if command -v ast-grep >/dev/null 2>&1; then
-  step "ast-grep déjà installé"
+  step "ast-grep already installed"
 else
   step "install ast-grep"
   tmp="$(mktemp -d)"
@@ -69,12 +69,12 @@ else
 fi
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
-mkdir -p "$root/projets"
+mkdir -p "$root/projects"
 
-step "vérification"
+step "check"
 sqlite3 --version
 rg --version
 ast-grep --version
 herdr --version || true
 grok --version || true
-echo "Install terminée. Config Grok non écrasée."
+echo "Install done. Grok config not overwritten."

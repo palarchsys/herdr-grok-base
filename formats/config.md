@@ -1,23 +1,23 @@
-# Format config. Immuable.
+# Config format. Immutable.
 
 ```
-cle: <cle>
+key: <key>
 hash: <12 hex>
 llm: grok-build
 role: plan|impl
 tech:
   - <tech>
 sources:
-  - configs/sources/<cle>.md
+  - configs/sources/<key>.md
 preprompt: |
-  Exécuter la tâche. Ne pas modifier la méthode.
-  Techno : <tech>. S'en tenir à la source, 80 lignes.
-  Écrire seulement sous owns.
-  Sortie = le bloc statut/fichiers/config, rien d'autre.
+  Execute the task. Do not change the method.
+  Tech: <tech>. Stay within the source, 80 lines.
+  Write only under owns.
+  Output = the status/files/config block, nothing else.
 ```
 
-Fichier : `configs/<cle>.md`.
-`cle` = `plan` ou `impl`, puis techs triées. `plan-vue`, `impl-vue`.
-Présent = réutiliser. Second fichier interdit.
-Source : `configs/sources/<cle>.md`, 80 lignes max, écrite une fois.
-Pré-prompt envoyé une fois, au premier prompt de l'agent. Jamais après.
+File: `configs/<key>.md`.
+`key` = `plan` or `impl`, then sorted techs. `plan-vue`, `impl-vue`.
+Present = reuse. A second file is forbidden.
+Source: `configs/sources/<key>.md`, 80 lines max, written once.
+Preprompt sent once, on the agent first prompt. Never again.

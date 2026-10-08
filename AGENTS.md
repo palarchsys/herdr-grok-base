@@ -1,45 +1,45 @@
-# Protocole. Exécuter. Ne pas interpréter.
+# Protocol. Execute. Do not interpret.
 
-Rôle : orchestrateur du tab courant. Cwd = `projets/<nom>/`. Aucune édition hors de ce dossier, aucune édition sous `src/` ici.
-Si `HERDR_ENV` n'est pas `1` : répondre `hors Herdr` et stop.
-Base : `registre.sqlite` seulement. Pas d'autre base. Pas de budget token. Profondeur max 2.
+Role: orchestrator of the current tab. Cwd = `projects/<name>/`. No edits outside that directory. No edits under `src/` in this tab.
+If `HERDR_ENV` is not `1`: reply `not in Herdr` and stop.
+Database: `registry.sqlite` only. No other database. No token budget. Max depth 2.
 
-Interdit : coder sous `src/`, prompt libre, poll, `herdr` nu, voler le focus, reprendre un pane purgé, réécrire une clé de `configs/`, lire un dossier registre si la requête SQLite répond.
+Forbidden: coding under `src/`, free-form prompts, polling, bare `herdr`, stealing focus, resuming a purged pane, rewriting a `configs/` key, scanning a registry directory when SQLite answers.
 
-## Entrée
+## Input
 
-Le message utilisateur est la demande.
+The user message is the request.
 
-## Algorithme
+## Algorithm
 
-1. `sqlite3 registre.sqlite < formats/registre.sql` si le fichier base est absent.
-2. `id = d-<epoch>-0`. `hash` = 12 premiers hex de sha256 du message.
-3. `SELECT id FROM demandes WHERE hash=`. Ligne → écrire `pointeur` dans `demandes/<id>.md` et stop.
-4. Écrire `demandes/<id>.md` format `formats/demande.md`. `INSERT` hash, id, depth 0, statut open.
-5. Modules : id `[a-z][a-z0-9-]{0,24}`. Owns = `src/<module>/` et `modules/<module>/PLAN.md`.
-6. Clés : `plan-<techs>` puis `impl-<techs>`. Techs triées. Absente de `configs/<cle>.md` → écrire format `formats/config.md`. Source absente → `configs/sources/<cle>.md`, 80 lignes max. Présente → ne pas toucher.
-7. Depth 1 = une demande par module. Depth 2 = plan, puis impl. Pas de depth 3. Chaque enfant : fichier + `INSERT`.
-8. Nom plan = `<module>-plan`. Nom impl = `<module>`. Hors `[a-z][a-z0-9_-]{0,31}` → stop.
-9. `agents/<nom>.md` absent, `fin` rempli, ou `config` ≠ clé → étape 10. Sinon réutiliser tab et pane.
-10. Créer : `herdr tab create --no-focus` ; `herdr worktree create --branch mod-<nom> --base main --label <nom> --no-focus` ; `herdr agent start <nom> --kind grok --pane <root_pane> --`. Écrire `modules/<module>/MODULE.md` si absent, puis `agents/<nom>.md`. Premier prompt = pré-prompt config + tâche. Suivants = tâche seule.
-11. Extraits, dans cet ordre, stop dès que 3 fichiers sont atteints :
-    - `SELECT path, ligne FROM symboles WHERE nom=`.
-    - Sinon `rg -n --max-count 5 <symbole> src/<module>`.
-    - 40 lignes max par fichier. Pas de dossier entier.
-12. Verrou : `INSERT` dans `verrous` si `expires_at` passé ou path absent. Sinon cette tâche attend. TTL 900 s.
-13. Tâches sans path commun : `herdr agent prompt <nom> --wait --timeout 600000` ensemble. Pas de poll.
-14. Sortie ≠ `formats/sortie.md` → failed. Path hors owns → failed + purge. Deux failed même hash → purge puis un retry. Troisième → stop.
-15. Purge : `fin`, déplacer vers `agents/clos/<nom>-<epoch>.md`, `herdr tab close <tab>`, `herdr worktree remove --label <nom>`. Recréer via étape 10.
-16. `done` : `DELETE` verrou. `rg` confirme les paths. `ast-grep run -l <lang> -p '$NAME' src/<module> --json` alimente `symboles` (nom, kind, ligne). `INSERT OR REPLACE` dans `fichiers`. Commit du worktree.
-17. Merge : orchestrateur seul, après `done` des depth 2 du module. Plan avant impl. Impl lit `modules/<module>/PLAN.md`.
+1. `sqlite3 registry.sqlite < formats/registry.sql` if the database file is missing.
+2. `id = r-<epoch>-0`. `hash` = first 12 hex of sha256 of the message.
+3. `SELECT id FROM requests WHERE hash=`. Row found → write `pointer` in `requests/<id>.md` and stop.
+4. Write `requests/<id>.md` using `formats/request.md`. `INSERT` hash, id, depth 0, status open.
+5. Modules: id `[a-z][a-z0-9-]{0,24}`. Owns = `src/<module>/` and `modules/<module>/PLAN.md`.
+6. Keys: `plan-<techs>` then `impl-<techs>`. Techs sorted. Missing `configs/<key>.md` → write `formats/config.md`. Missing source → `configs/sources/<key>.md`, 80 lines max. Present → do not touch.
+7. Depth 1 = one request per module. Depth 2 = plan, then impl. No depth 3. Each child: file + `INSERT`.
+8. Plan name = `<module>-plan`. Impl name = `<module>`. Outside `[a-z][a-z0-9_-]{0,31}` → stop.
+9. `agents/<name>.md` missing, `end` set, or `config` ≠ key → step 10. Else reuse tab and pane.
+10. Create: `herdr tab create --no-focus`; `herdr worktree create --branch mod-<name> --base main --label <name> --no-focus`; `herdr agent start <name> --kind grok --pane <root_pane> --`. Write `modules/<module>/MODULE.md` if missing, then `agents/<name>.md`. First prompt = config preprompt + task. Later prompts = task only.
+11. Excerpts, in this order, stop at 3 files:
+    - `SELECT path, line FROM symbols WHERE name=`.
+    - Else `rg -n --max-count 5 <symbol> src/<module>`.
+    - 40 lines max per file. No whole directory.
+12. Lock: `INSERT` into `locks` if `expires_at` passed or path missing. Else this task waits. TTL 900 s.
+13. Tasks with no shared path: `herdr agent prompt <name> --wait --timeout 600000` together. No poll.
+14. Output ≠ `formats/output.md` → failed. Path outside owns → failed + purge. Two failures same hash → purge then one retry. Third → stop.
+15. Purge: set `end`, move to `agents/closed/<name>-<epoch>.md`, `herdr tab close <tab>`, `herdr worktree remove --label <name>`. Recreate via step 10.
+16. `done`: `DELETE` lock. `rg` confirms paths. `ast-grep run -l <lang> -p '$NAME' src/<module> --json` fills `symbols` (name, kind, line). `INSERT OR REPLACE` into `files`. Commit the worktree.
+17. Merge: orchestrator only, after all depth 2 of the module are `done`. Plan before impl. Impl reads `modules/<module>/PLAN.md`.
 
-Fin : demande racine `done`, enfants listés. Ne pas résumer la méthode.
+End: root request `done`, children listed. Do not summarize the method.
 
-## Regles projet
+## Project rules
 
-Après ce fichier, lire `regles/` du cwd.
-Fichiers lus : `AGENT-<n>-<NOM>.md` seulement. `n` entier, ordre croissant.
-Dossier absent ou vide = stop de cette étape, pas d'erreur.
-Autre nom = ignorer.
-Appliquer ces fichiers. Ne pas modifier `AGENTS.md`.
-Format : `formats/regle.md`.
+After this file, read `rules/` of the cwd.
+Read only `AGENT-<n>-<NAME>.md`. `n` integer, ascending.
+Missing or empty directory = stop this step, not an error.
+Other names = ignore.
+Apply these files. Do not modify `AGENTS.md`.
+Format: `formats/rule.md`.

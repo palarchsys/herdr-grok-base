@@ -2,27 +2,27 @@
 
 Grok ne lit pas ce README. Il lit `AGENTS.md` du projet lancé. `grok inspect` doit le lister.
 
-La racine de ce dépôt est le protocole. Grok n'y écrit pas.
+La racine de ce dépôt est le protocole. Grok n'y écrit pas. Chemins, fichiers et commandes sont en anglais.
 
 ```
 herdr-grok-base/
   AGENTS.md
   README.md
   formats/
-  regles/
-  projets/
-    <nom>/
+  rules/
+  projects/
+    <name>/
       AGENTS.md
       formats/
-      regles/
+      rules/
         AGENT-0-SQL.md
         AGENT-1-MD.md
-      demandes/
+      requests/
       configs/sources/
-      agents/clos/
+      agents/closed/
       modules/
       src/
-      registre.sqlite
+      registry.sqlite
 ```
 
 ## Installation de base
@@ -30,36 +30,16 @@ herdr-grok-base/
 Ubuntu 26.04 uniquement.
 
 ```bash
-curl -fsSL https://herdr.dev/install.sh | sh
-curl -fsSL https://x.ai/cli/install.sh | bash
-grok login
-herdr integration install grok
+bash scripts/install.sh
 ```
 
-```bash
-git clone git@github.com:palarchsys/herdr-grok-base.git
-cd herdr-grok-base
-mkdir -p projets
-```
+Le script saute une étape déjà faite. Il n'écrit pas dans `~/.grok`.
 
 ## Outils Ubuntu 26.04
 
-`sqlite3`, `rg`, `ast-grep`.
-
-```bash
-sudo apt-get update
-sudo apt-get install -y sqlite3 ripgrep curl unzip
-```
+Installés par le script s'ils manquent : `sqlite3`, `rg` (`ripgrep`), `ast-grep`.
 
 `ast-grep` n'est pas dans apt. Le binaire Linux s'appelle `sg`. Le protocole appelle `ast-grep`.
-
-```bash
-cd /tmp
-wget -qO ast-grep.zip https://github.com/ast-grep/ast-grep/releases/latest/download/app-x86_64-unknown-linux-gnu.zip
-sudo unzip -q -o ast-grep.zip -d /usr/local/bin
-sudo ln -sfn /usr/local/bin/sg /usr/local/bin/ast-grep
-rm -f ast-grep.zip
-```
 
 Vérifier :
 
@@ -71,56 +51,25 @@ ast-grep --version
 
 Les trois commandes doivent répondre. Sinon ne pas lancer de projet.
 
-La base n'est pas créée ici. Elle l'est au lancement, depuis `formats/registre.sql`. Tables : `demandes`, `fichiers`, `symboles`, `verrous`. `registre.sqlite` est ignoré par git.
+La base n'est pas créée ici. Elle l'est au lancement, depuis `formats/registry.sql`. Tables : `requests`, `files`, `symbols`, `locks`. `registry.sqlite` est ignoré par git.
 
-## Scripts
-
-Install machine, sans écraser `~/.grok` :
+## Nouveau projet
 
 ```bash
-bash scripts/install.sh
+bash scripts/new-project.sh
+source ~/.bashrc && herdr-<name>
 ```
 
-Nouveau projet, idempotent. Ajoute `herdr-<nom>` dans `~/.bashrc`.
+Le script ne remplace aucun fichier déjà présent. `herdr-<name>` ouvre Herdr dans `projects/<name>`.
 
-```bash
-bash scripts/nouveau-projet.sh
-source ~/.bashrc && herdr-<nom>
-```
-
-`herdr-<nom>` ouvre Herdr dans `projets/<nom>`.
-
-## Lancement d'un projet
-
-Un dossier par projet. Grok démarre dedans, pas à la racine.
-
-```bash
-cd herdr-grok-base
-nom=<nom>
-mkdir -p projets/$nom/{demandes,configs/sources,agents/clos,modules,src,formats,regles}
-cp AGENTS.md projets/$nom/AGENTS.md
-cp -R formats/. projets/$nom/formats/
-sqlite3 projets/$nom/registre.sqlite < formats/registre.sql
-sqlite3 projets/$nom/registre.sqlite ".tables"
-cd projets/$nom
-git init
-herdr
-test "${HERDR_ENV:-}" = 1
-grok inspect && grok
-```
-
-`grok inspect` doit lister `projets/<nom>/AGENTS.md`. Sinon ne pas prompt.
-
-Ensuite un prompt dans ce tab. L'orchestrateur écrit sous `projets/<nom>/` seulement.
-
-Règles du projet : `projets/<nom>/regles/AGENT-<n>-<NOM>.md`. Lues après `AGENTS.md`, par numéro. `AGENTS.md` ne se modifie pas. Exemple : `AGENT-0-SQL.md`, `AGENT-1-MD.md`. Dossier vide = pas de règle en plus.
+Règles du projet : `projects/<name>/rules/AGENT-<n>-<NAME>.md`. Lues après `AGENTS.md`, par numéro. `AGENTS.md` ne se modifie pas. Dossier vide = pas de règle en plus.
 
 ## Après un prompt
 
-1. Hash dans `registre.sqlite`. Déjà vu → pointeur, stop.
+1. Hash dans `registry.sqlite`. Déjà vu → pointeur, stop.
 2. Depth 1 = module, depth 2 = plan puis impl.
 3. `configs/plan-vue.md`, `configs/impl-vue.md`. Source 80 lignes, une fois.
 4. Tabs `<module>-plan` et `<module>`. Worktree Herdr.
-5. Extraits via `symboles`, sinon `rg`. Après `done`, `ast-grep` remplit `symboles`.
-6. Verrous SQLite, 900 s. Tâches sans path commun en parallèle. Timeout 600000.
+5. Extraits via `symbols`, sinon `rg`. Après `done`, `ast-grep` remplit `symbols`.
+6. Verrous dans `locks`, 900 s. Tâches sans path commun en parallèle. Timeout 600000.
 7. Deux fails ou path hors owns → fermer tab, `herdr worktree remove`, agent neuf.
