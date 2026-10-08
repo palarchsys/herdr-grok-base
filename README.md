@@ -23,7 +23,7 @@ herdr-grok-base/
 
 ## Installation de base
 
-Une fois sur la machine.
+Ubuntu 26.04 uniquement.
 
 ```bash
 curl -fsSL https://herdr.dev/install.sh | sh
@@ -32,36 +32,42 @@ grok login
 herdr integration install grok
 ```
 
-`rg` et `ast-grep` doivent être dans le PATH.
-
 ```bash
 git clone git@github.com:palarchsys/herdr-grok-base.git
 cd herdr-grok-base
 mkdir -p projets
 ```
 
-## Installation de SQLite
+## Outils Ubuntu 26.04
 
-Une fois sur la machine. Le binaire exigé est `sqlite3`.
+`sqlite3`, `rg`, `ast-grep`.
 
 ```bash
-# Debian / Ubuntu
-sudo apt-get update && sudo apt-get install -y sqlite3
+sudo apt-get update
+sudo apt-get install -y sqlite3 ripgrep curl unzip
+```
 
-# Fedora
-sudo dnf install -y sqlite
+`ast-grep` n'est pas dans apt. Le binaire Linux s'appelle `sg`. Le protocole appelle `ast-grep`.
 
-# macOS
-brew install sqlite
+```bash
+cd /tmp
+wget -qO ast-grep.zip https://github.com/ast-grep/ast-grep/releases/latest/download/app-x86_64-unknown-linux-gnu.zip
+sudo unzip -q -o ast-grep.zip -d /usr/local/bin
+sudo ln -sfn /usr/local/bin/sg /usr/local/bin/ast-grep
+rm -f ast-grep.zip
 ```
 
 Vérifier :
 
 ```bash
 sqlite3 --version
+rg --version
+ast-grep --version
 ```
 
-La base n'est pas créée ici. Elle l'est au lancement du projet, à partir de `formats/registre.sql`. Tables : `demandes`, `fichiers`, `symboles`, `verrous`. Fichier ignoré par git : `registre.sqlite`.
+Les trois commandes doivent répondre. Sinon ne pas lancer de projet.
+
+La base n'est pas créée ici. Elle l'est au lancement, depuis `formats/registre.sql`. Tables : `demandes`, `fichiers`, `symboles`, `verrous`. `registre.sqlite` est ignoré par git.
 
 ## Lancement d'un projet
 
