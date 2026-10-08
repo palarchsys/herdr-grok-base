@@ -73,6 +73,23 @@ Les trois commandes doivent répondre. Sinon ne pas lancer de projet.
 
 La base n'est pas créée ici. Elle l'est au lancement, depuis `formats/registre.sql`. Tables : `demandes`, `fichiers`, `symboles`, `verrous`. `registre.sqlite` est ignoré par git.
 
+## Scripts
+
+Install machine, sans écraser `~/.grok` :
+
+```bash
+bash scripts/install.sh
+```
+
+Nouveau projet, idempotent. Ajoute `herdr-<nom>` dans `~/.bashrc`.
+
+```bash
+bash scripts/nouveau-projet.sh
+source ~/.bashrc && herdr-<nom>
+```
+
+`herdr-<nom>` ouvre Herdr dans `projets/<nom>`.
+
 ## Lancement d'un projet
 
 Un dossier par projet. Grok démarre dedans, pas à la racine.
