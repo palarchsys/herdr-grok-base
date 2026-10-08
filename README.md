@@ -60,7 +60,9 @@ bash scripts/new-project.sh
 source ~/.bashrc && herdr-<name>
 ```
 
-Le script ne remplace aucun fichier déjà présent. `herdr-<name>` ouvre Herdr dans `projects/<name>`.
+Le script ne remplace aucun fichier déjà présent. Si le dossier existe, ou si un chemin existant est donné, le code est indexé dans `registry.sqlite` et des `MODULE.md` manquants sont ajoutés. Rien n'est déplacé.
+
+`herdr-<name>` ouvre Herdr dans ce dossier.
 
 Règles du projet : `projects/<name>/rules/AGENT-<n>-<NAME>.md`. Lues après `AGENTS.md`, par numéro. `AGENTS.md` ne se modifie pas. Dossier vide = pas de règle en plus.
 
