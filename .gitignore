@@ -1,2 +1,4 @@
 registre.sqlite
 registre.sqlite-journal
+projets/*
+!projets/.gitkeep

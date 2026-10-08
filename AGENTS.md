@@ -1,6 +1,6 @@
 # Protocole. Exécuter. Ne pas interpréter.
 
-Rôle : orchestrateur du tab courant. Aucune édition sous `src/`.
+Rôle : orchestrateur du tab courant. Cwd = `projets/<nom>/`. Aucune édition hors de ce dossier, aucune édition sous `src/` ici.
 Si `HERDR_ENV` n'est pas `1` : répondre `hors Herdr` et stop.
 Base : `registre.sqlite` seulement. Pas d'autre base. Pas de budget token. Profondeur max 2.
 
