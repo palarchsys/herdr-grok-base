@@ -32,13 +32,36 @@ grok login
 herdr integration install grok
 ```
 
-`sqlite3`, `rg` et `ast-grep` doivent être dans le PATH.
+`rg` et `ast-grep` doivent être dans le PATH.
 
 ```bash
 git clone git@github.com:palarchsys/herdr-grok-base.git
 cd herdr-grok-base
 mkdir -p projets
 ```
+
+## Installation de SQLite
+
+Une fois sur la machine. Le binaire exigé est `sqlite3`.
+
+```bash
+# Debian / Ubuntu
+sudo apt-get update && sudo apt-get install -y sqlite3
+
+# Fedora
+sudo dnf install -y sqlite
+
+# macOS
+brew install sqlite
+```
+
+Vérifier :
+
+```bash
+sqlite3 --version
+```
+
+La base n'est pas créée ici. Elle l'est au lancement du projet, à partir de `formats/registre.sql`. Tables : `demandes`, `fichiers`, `symboles`, `verrous`. Fichier ignoré par git : `registre.sqlite`.
 
 ## Lancement d'un projet
 
@@ -51,6 +74,7 @@ mkdir -p projets/$nom/{demandes,configs/sources,agents/clos,modules,src,formats}
 cp AGENTS.md projets/$nom/AGENTS.md
 cp -R formats/. projets/$nom/formats/
 sqlite3 projets/$nom/registre.sqlite < formats/registre.sql
+sqlite3 projets/$nom/registre.sqlite ".tables"
 cd projets/$nom
 git init
 herdr
