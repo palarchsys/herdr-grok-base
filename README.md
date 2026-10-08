@@ -9,10 +9,14 @@ herdr-grok-base/
   AGENTS.md
   README.md
   formats/
+  regles/
   projets/
     <nom>/
       AGENTS.md
       formats/
+      regles/
+        AGENT-0-SQL.md
+        AGENT-1-MD.md
       demandes/
       configs/sources/
       agents/clos/
@@ -76,7 +80,7 @@ Un dossier par projet. Grok démarre dedans, pas à la racine.
 ```bash
 cd herdr-grok-base
 nom=<nom>
-mkdir -p projets/$nom/{demandes,configs/sources,agents/clos,modules,src,formats}
+mkdir -p projets/$nom/{demandes,configs/sources,agents/clos,modules,src,formats,regles}
 cp AGENTS.md projets/$nom/AGENTS.md
 cp -R formats/. projets/$nom/formats/
 sqlite3 projets/$nom/registre.sqlite < formats/registre.sql
@@ -91,6 +95,8 @@ grok inspect && grok
 `grok inspect` doit lister `projets/<nom>/AGENTS.md`. Sinon ne pas prompt.
 
 Ensuite un prompt dans ce tab. L'orchestrateur écrit sous `projets/<nom>/` seulement.
+
+Règles du projet : `projets/<nom>/regles/AGENT-<n>-<NOM>.md`. Lues après `AGENTS.md`, par numéro. `AGENTS.md` ne se modifie pas. Exemple : `AGENT-0-SQL.md`, `AGENT-1-MD.md`. Dossier vide = pas de règle en plus.
 
 ## Après un prompt
 

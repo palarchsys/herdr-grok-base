@@ -34,3 +34,12 @@ Le message utilisateur est la demande.
 17. Merge : orchestrateur seul, après `done` des depth 2 du module. Plan avant impl. Impl lit `modules/<module>/PLAN.md`.
 
 Fin : demande racine `done`, enfants listés. Ne pas résumer la méthode.
+
+## Regles projet
+
+Après ce fichier, lire `regles/` du cwd.
+Fichiers lus : `AGENT-<n>-<NOM>.md` seulement. `n` entier, ordre croissant.
+Dossier absent ou vide = stop de cette étape, pas d'erreur.
+Autre nom = ignorer.
+Appliquer ces fichiers. Ne pas modifier `AGENTS.md`.
+Format : `formats/regle.md`.
