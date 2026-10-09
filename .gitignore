@@ -1,4 +1,8 @@
 registry.sqlite
 registry.sqlite-journal
+registry.sqlite-wal
+registry.sqlite-shm
+__pycache__/
+*.pyc
 projects/*
 !projects/.gitkeep

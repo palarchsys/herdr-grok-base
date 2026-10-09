@@ -4,12 +4,19 @@ Allowed queries:
 
 ```
 SELECT id FROM requests WHERE hash='<hash>';
-SELECT path, line FROM symbols WHERE name='<name>';
+SELECT path, line FROM symbols WHERE name='<name>' AND path LIKE 'src/<module>/%';
 SELECT path FROM files WHERE module='<module>';
-INSERT INTO locks(path, agent, request, expires_at) VALUES (...);
+INSERT INTO requests(hash, id, parent, depth, module, config, status) VALUES (...);
+INSERT OR REPLACE INTO files(path, module, summary) VALUES (...);
+DELETE FROM symbols WHERE path='<path>';
+INSERT OR REPLACE INTO symbols(path, name, kind, line) VALUES (...);
 DELETE FROM locks WHERE path='<path>' OR expires_at < <epoch>;
+INSERT INTO locks(path, agent, request, expires_at) VALUES (...);
+DELETE FROM locks WHERE path='<path>';
 ```
 
-`rg` only if `symbols` has no name. `ast-grep` only after `done`, to fill `symbols`.
+`DELETE` the lock row before `INSERT` when the path is free or expired.
+`files.summary` = first 12 hex of sha256 of the file bytes. Empty = not indexed.
+`rg` only if `symbols` has no name in the module. `python3 scripts/index-symbols.py <module>` after `done`.
 No `SELECT *`. No directory scan.
 Worker does not touch the database.

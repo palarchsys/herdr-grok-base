@@ -31,3 +31,5 @@ CREATE TABLE IF NOT EXISTS locks (
 
 CREATE INDEX IF NOT EXISTS files_module ON files(module);
 CREATE INDEX IF NOT EXISTS symbols_name ON symbols(name);
+CREATE INDEX IF NOT EXISTS requests_parent ON requests(parent);
+CREATE INDEX IF NOT EXISTS requests_module_status ON requests(module, status);

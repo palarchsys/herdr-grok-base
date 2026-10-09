@@ -13,5 +13,5 @@ output: status, files, config
 ```
 
 Excerpts: `symbols`, then `rg`. 3 files, 40 lines. Tech source pasted, 80 lines max.
-Send: `herdr agent prompt <name> --wait --timeout 600000`.
+Send: `herdr agent prompt <name> <text> --wait --until idle --until done --timeout 600000`.
 First prompt: config preprompt, then this block. Later: this block only.

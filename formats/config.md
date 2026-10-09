@@ -18,6 +18,7 @@ preprompt: |
 
 File: `configs/<key>.md`.
 `key` = `plan` or `impl`, then sorted techs. `plan-vue`, `impl-vue`.
+Tech names match `[a-z0-9]+`.
 Present = reuse. A second file is forbidden.
 Source: `configs/sources/<key>.md`, 80 lines max, written once.
 Preprompt sent once, on the agent first prompt. Never again.
