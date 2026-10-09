@@ -76,6 +76,6 @@ Règles du projet : `projects/<name>/rules/AGENT-<n>-<NAME>.md`. Lues après `AG
 2. Depth 1 = module, depth 2 = plan puis impl.
 3. `configs/plan-vue.md`, `configs/impl-vue.md`. Source 80 lignes, une fois.
 4. Worktree Herdr d'abord, `--no-focus`. Plan : `--base main`. Impl : `--base mod-<module>-plan`, après le commit du plan. Ids lus dans le JSON : `result.workspace.workspace_id`, `result.tab.tab_id`, `result.root_pane.pane_id`, `result.worktree.path`.
-5. Extraits via `symbols` du module, sinon `rg`. Après `done`, `python3 scripts/index-symbols.py <module>` : un `ast-grep` par motif, les fichiers inchangés sont sautés. `.vue` n'a pas de langue ast-grep.
+5. Extraits via `symbols` du module, sinon `rg`. Après `done`, `python3 scripts/index-symbols.py <module>` : un `ast-grep` par motif, les fichiers inchangés sont sautés. Un `.vue` est lu par son bloc `<script>`, en TypeScript par défaut.
 6. Verrous dans `locks`, 900 s. Chemin déjà pris : la tâche reste `open`, les autres modules partent. Prompt : `herdr agent prompt <name> <text> --wait --until idle --until done --timeout 600000`.
 7. Deux fails ou path hors owns → `herdr worktree remove --workspace <id> --force`, agent neuf. Fusion : `git merge --no-ff mod-<module>` dans le projet. Cette branche contient les commits du plan.

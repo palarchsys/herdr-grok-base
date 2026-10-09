@@ -12,6 +12,8 @@ import sys
 from pathlib import Path
 
 NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+SCRIPT_RE = re.compile(r"<script\b([^>]*)>(.*?)</script>", re.IGNORECASE | re.DOTALL)
+LANG_ATTR_RE = re.compile(r"""lang\s*=\s*['"]?([A-Za-z]+)""")
 
 
 def parse_symbols(text):
@@ -42,21 +44,64 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
 
 
+def script_ast_lang(attrs):
+    match = LANG_ATTR_RE.search(attrs or "")
+    if match and match.group(1).lower() in {"js", "javascript"}:
+        return "js"
+    return "ts"
+
+
+def vue_scripts(text):
+    blocks = []
+    for match in SCRIPT_RE.finditer(text):
+        start = text[: match.start(2)].count("\n")
+        padded = ("\n" * start) + match.group(2)
+        blocks.append((script_ast_lang(match.group(1)), padded))
+    return blocks
+
+
+def load_matches(stdout):
+    if not stdout.strip():
+        return []
+    try:
+        data = json.loads(stdout)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(data, list):
+        return []
+    return data
+
+
 def matches(lang, pattern, directory):
     proc = subprocess.run(
         ["ast-grep", "run", "-l", lang, "-p", pattern, "--json", str(directory)],
         capture_output=True,
         text=True,
     )
-    if not proc.stdout.strip():
-        return []
-    try:
-        data = json.loads(proc.stdout)
-    except json.JSONDecodeError:
-        return []
-    if not isinstance(data, list):
-        return []
-    return data
+    return load_matches(proc.stdout)
+
+
+def matches_stdin(lang, pattern, source):
+    proc = subprocess.run(
+        ["ast-grep", "run", "-l", lang, "-p", pattern, "--json", "--stdin"],
+        input=source,
+        capture_output=True,
+        text=True,
+    )
+    return load_matches(proc.stdout)
+
+
+def symbol_name(match):
+    name = (
+        (match.get("metaVariables") or {})
+        .get("single", {})
+        .get("NAME", {})
+        .get("text")
+    )
+    line0 = (match.get("range") or {}).get("start", {}).get("line")
+    if not name or line0 is None or not NAME_RE.match(name):
+        return None
+    return name, line0 + 1
 
 
 def main():
@@ -91,9 +136,14 @@ def main():
 
     wanted = set(changed)
     by_dir = {}
+    vue_rels = []
     for rel in changed:
         ext = Path(rel).suffix.lower().lstrip(".")
-        if ext not in by_ext:
+        spec = by_ext.get(ext)
+        if spec is None:
+            continue
+        if ext == "vue" or spec["lang"] == "script":
+            vue_rels.append(rel)
             continue
         parent = str(Path(rel).parent)
         by_dir.setdefault((ext, parent), []).append(rel)
@@ -101,6 +151,17 @@ def main():
     inserts = []
     seen = set()
     root_resolved = root.resolve()
+
+    def add_hit(rel, kind, found):
+        if found is None or rel not in wanted:
+            return
+        name, line = found
+        key = (rel, name, kind, line)
+        if key in seen:
+            return
+        seen.add(key)
+        inserts.append(key)
+
     for (ext, parent), _paths in by_dir.items():
         spec = by_ext[ext]
         directory = root / parent
@@ -108,29 +169,21 @@ def main():
             continue
         for kind, pattern in spec["patterns"]:
             for match in matches(spec["lang"], pattern, directory):
-                name = (
-                    (match.get("metaVariables") or {})
-                    .get("single", {})
-                    .get("NAME", {})
-                    .get("text")
-                )
-                if not name or not NAME_RE.match(name):
-                    continue
-                line0 = (match.get("range") or {}).get("start", {}).get("line")
-                if line0 is None:
-                    continue
                 raw_file = match.get("file") or ""
                 try:
                     rel = str(Path(raw_file).resolve().relative_to(root_resolved))
                 except ValueError:
                     continue
-                if rel not in wanted:
-                    continue
-                key = (rel, name, kind, line0 + 1)
-                if key in seen:
-                    continue
-                seen.add(key)
-                inserts.append(key)
+                add_hit(rel, kind, symbol_name(match))
+
+    vue_spec = by_ext.get("vue")
+    if vue_spec:
+        for rel in vue_rels:
+            text = (root / rel).read_text(encoding="utf-8", errors="replace")
+            for ast_lang, padded in vue_scripts(text):
+                for kind, pattern in vue_spec["patterns"]:
+                    for match in matches_stdin(ast_lang, pattern, padded):
+                        add_hit(rel, kind, symbol_name(match))
 
     with db:
         for rel in changed:

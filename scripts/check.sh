@@ -46,6 +46,7 @@ require_text AGENTS.md "SELECT path, line FROM symbols WHERE name='<name>' AND p
 require_text formats/task.md 'herdr agent prompt <name> <text> --wait --until idle --until done --timeout 600000'
 require_text formats/agent.md 'workspace: <result.workspace.workspace_id>'
 require_text formats/symbols.md 'ext: vue'
+require_text formats/symbols.md 'lang: script'
 
 if grep -R -n --exclude-dir=.git --exclude=check.sh 'worktree remove --label' AGENTS.md formats README.md scripts >/dev/null; then
   echo "Stale --label removal remains."
@@ -109,12 +110,22 @@ if found != {"add", "Box"}:
     raise SystemExit(f"unexpected symbols: {found}")
 print("symbols ok")
 PY
-# shellcheck disable=SC2016
-if ast-grep run -l vue -p 'function $NAME() {}' "$sym/mod.ts" >/dev/null 2>"$sym/vue.err"; then
-  echo "ast-grep accepted lang vue."
-  exit 1
-fi
 rm -rf "$sym"
+python3 - "$root/scripts/index-symbols.py" << 'PY'
+import importlib.util
+import sys
+path = sys.argv[1]
+spec = importlib.util.spec_from_file_location("index_symbols", path)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+assert mod.script_ast_lang("") == "ts"
+assert mod.script_ast_lang(" setup") == "ts"
+assert mod.script_ast_lang(' setup lang="ts"') == "ts"
+assert mod.script_ast_lang(" lang=tsx") == "ts"
+assert mod.script_ast_lang(" lang=javascript") == "js"
+assert mod.script_ast_lang(' lang="js"') == "js"
+print("vue lang ok")
+PY
 
 work="$(mktemp -d)"
 real_home="$HOME"
@@ -220,6 +231,23 @@ mv "$HOME/.bashrc.full" "$HOME/.bashrc"
 adopt="$work/adopted"
 mkdir -p "$adopt/src/web" "$adopt/pkg" "$adopt/node_modules" "$adopt/dist"
 printf 'export function add(){return 1}\n' > "$adopt/src/web/app.ts"
+cat > "$adopt/src/web/App.vue" << 'EOF'
+<template>
+  <p/>
+</template>
+<script setup lang="ts">
+export function add(a: number) {
+  return a
+}
+</script>
+EOF
+cat > "$adopt/src/web/Plain.vue" << 'EOF'
+<script setup>
+export function plain() {
+  return 1
+}
+</script>
+EOF
 printf 'readme\n' > "$adopt/pkg/readme.txt"
 printf 'junk\n' > "$adopt/node_modules/left-pad.js"
 printf 'built\n' > "$adopt/dist/app.js"
@@ -237,6 +265,10 @@ grep -qF 'pkg/**' "$adopt/modules/pkg/MODULE.md"
 [[ -f "$adopt/scripts/index-symbols.py" ]]
 symbol="$(sqlite3 "$adopt/registry.sqlite" "SELECT name || ' ' || kind || ' ' || line FROM symbols WHERE path='src/web/app.ts' ORDER BY name;")"
 grep -qx 'add function 1' <<<"$symbol"
+vue_symbol="$(sqlite3 "$adopt/registry.sqlite" "SELECT name || ' ' || kind || ' ' || line FROM symbols WHERE path='src/web/App.vue' AND name='add';")"
+[[ "$vue_symbol" == "add function 5" ]]
+plain_symbol="$(sqlite3 "$adopt/registry.sqlite" "SELECT name || ' ' || kind || ' ' || line FROM symbols WHERE path='src/web/Plain.vue' AND name='plain';")"
+[[ "$plain_symbol" == "plain function 2" ]]
 summary="$(sqlite3 "$adopt/registry.sqlite" "SELECT summary FROM files WHERE path='src/web/app.ts';")"
 [[ "$summary" =~ ^[0-9a-f]{12}$ ]]
 row_before="$(sqlite3 "$adopt/registry.sqlite" "SELECT rowid FROM symbols WHERE path='src/web/app.ts' AND name='add';")"

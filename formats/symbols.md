@@ -33,8 +33,16 @@ patterns:
     pattern: const $NAME = ($$$A) => { $$$B }
 
 ext: vue
-lang:
-patterns: []
+lang: script
+patterns:
+  - kind: function
+    pattern: function $NAME($$$A) { $$$B }
+  - kind: class
+    pattern: class $NAME { $$$B }
+  - kind: const
+    pattern: const $NAME = ($$$A) => $B
+  - kind: const
+    pattern: const $NAME = ($$$A) => { $$$B }
 
 ext: py
 lang: py
@@ -63,5 +71,7 @@ patterns:
     pattern: struct $NAME { $$$B }
 ```
 
-`.vue` has no ast-grep language. Skip the file.
+`.vue` uses `lang: script`. Each `<script>` block is read with ast-grep `--stdin`.
+Missing `lang`, and `ts`, `tsx`, or `typescript`, use `ts`. Explicit `js` or `javascript` uses `js`.
+The stored line is the line in the `.vue` file.
 Command: `ast-grep run -l <lang> -p '<pattern>' <file> --json`.
