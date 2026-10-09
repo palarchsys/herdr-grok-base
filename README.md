@@ -73,9 +73,9 @@ Règles du projet : `projects/<name>/rules/AGENT-<n>-<NAME>.md`. Lues après `AG
 ## Après un prompt
 
 1. Hash dans `registry.sqlite`. Déjà vu → pointeur, stop.
-2. Depth 1 = module, depth 2 = plan puis impl.
+2. Depth 1 = module, depth 2 = plan puis impl. Découpage par domaine indépendant : graphisme, base de données, UX, core, ou un autre domaine sans chemin commun. Plusieurs modules d'un domaine partent ensemble. Un module = un agent plan, puis un agent impl. Le temps est celui du module le plus lent.
 3. `configs/plan-vue.md`, `configs/impl-vue.md`. Source 80 lignes, une fois.
 4. Worktree Herdr d'abord, `--no-focus`. Plan : `--base main`. Impl : `--base mod-<module>-plan`, après le commit du plan. Ids lus dans le JSON : `result.workspace.workspace_id`, `result.tab.tab_id`, `result.root_pane.pane_id`, `result.worktree.path`.
 5. Extraits via `symbols` du module, sinon `rg`. Après `done`, `python3 scripts/index-symbols.py <module>` : un `ast-grep` par motif, les fichiers inchangés sont sautés. Un `.vue` est lu par son bloc `<script>`, en TypeScript par défaut.
-6. Verrous dans `locks`, 900 s. Chemin déjà pris : la tâche reste `open`, les autres modules partent. Prompt : `herdr agent prompt <name> <text> --wait --until idle --until done --timeout 600000`.
-7. Deux fails ou path hors owns → `herdr worktree remove --workspace <id> --force`, agent neuf. Fusion : `git merge --no-ff mod-<module>` dans le projet. Cette branche contient les commits du plan.
+6. Verrous dans `locks`, 900 s. Chemin déjà pris : la tâche reste `open`, les autres modules partent. Prompts de plan lancés ensemble, un processus chacun : `herdr agent prompt <name> <text> --wait --until idle --until done --timeout 600000 &`. `wait -n` au prochain agent terminé. Ce plan est fermé, puis son impl part tout de suite, sans attendre les autres plans.
+7. Après le commit du plan ou de l'impl, `herdr worktree remove --workspace <id> --force` ferme le workspace, l'onglet et le panneau ouverts pour cet agent. La branche git reste. L'onglet de l'orchestrateur reste ouvert. Workspace déjà absent : `git worktree remove` sur le checkout. Deux fails ou path hors owns → la même fermeture, puis un agent neuf. Fusion : `git merge --no-ff mod-<module>` dans le projet, après la fermeture du checkout d'impl. Cette branche reste et contient les commits du plan.

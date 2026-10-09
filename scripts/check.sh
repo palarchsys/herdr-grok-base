@@ -41,7 +41,17 @@ require_text AGENTS.md 'herdr worktree create --branch mod-<name> --base main --
 require_text AGENTS.md 'herdr worktree create --branch mod-<name> --base mod-<module>-plan --label <name> --no-focus'
 require_text AGENTS.md 'herdr agent start <name> --kind grok --pane <pane> --'
 require_text AGENTS.md 'herdr agent prompt <name> <text> --wait --until idle --until done --timeout 600000'
+require_text AGENTS.md 'wall time is the slowest ready module, not the sum.'
+require_text AGENTS.md 'Do not wait for every plan before any impl.'
+require_text AGENTS.md 'wait -n'
+require_text formats/task.md 'Do not chain'
+require_text formats/module.md 'Disjoint owns inside one concern are several modules and run together.'
+require_text README.md 'Le temps est celui du module le plus lent.'
 require_text AGENTS.md 'herdr worktree remove --workspace <workspace> --force'
+require_text AGENTS.md 'Do not close the orchestrator tab.'
+require_text AGENTS.md 'git worktree remove'
+require_text formats/agent.md 'Do not close the orchestrator tab.'
+require_text README.md "L'onglet de l'orchestrateur reste ouvert."
 require_text AGENTS.md "SELECT path, line FROM symbols WHERE name='<name>' AND path LIKE 'src/<module>/%'"
 require_text formats/task.md 'herdr agent prompt <name> <text> --wait --until idle --until done --timeout 600000'
 require_text formats/agent.md 'workspace: <result.workspace.workspace_id>'
@@ -339,6 +349,14 @@ wpath="$(sed -n '2p' "$work/ids")"
 herdr worktree remove --workspace "$wid" --force >/dev/null
 if [[ -d "$wpath" ]]; then
   echo "worktree checkout remains: $wpath"
+  exit 1
+fi
+if herdr workspace get "$wid" >/dev/null 2>&1; then
+  echo "worker workspace still open: $wid"
+  exit 1
+fi
+if ! git -C "$repo" show-ref --verify --quiet refs/heads/mod-check; then
+  echo "worktree remove deleted branch mod-check"
   exit 1
 fi
 if [[ "$was_running" -eq 0 ]]; then
