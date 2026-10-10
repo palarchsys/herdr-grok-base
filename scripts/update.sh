@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pull the protocol root, refresh each project, then ask about readmes and push.
+# Pull the protocol root, then report each project as updated or current.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -27,6 +27,8 @@ protocol_dirty_paths() {
     path="$(porcelain_path "$line")"
     case "$path" in
       projects|projects/*) continue ;;
+      .Trash-1000|.Trash-1000/*) continue ;;
+      .idea|.idea/*) continue ;;
     esac
     printf '%s\n' "$path"
   done < <(git -C "$root" status --porcelain)
@@ -36,7 +38,12 @@ protocol_dirty() {
   [[ -n "$(protocol_dirty_paths)" ]]
 }
 
-if ! pull_out="$(git -C "$root" pull --ff-only 2>&1)"; then
+if ! branch="$(git -C "$root" symbolic-ref --short HEAD 2>/dev/null)" || [[ -z "$branch" ]]; then
+  echo "Detached head."
+  exit 1
+fi
+
+if ! pull_out="$(git -C "$root" pull --ff-only origin "$branch" 2>&1)"; then
   if protocol_dirty; then
     echo "Dirty tree."
     protocol_dirty_paths
@@ -52,7 +59,7 @@ if [[ -n "$pull_out" ]]; then
 fi
 
 append_ignore() {
-  local file="$1" line
+  local file="$1" line wrote=0
   local lines=(
     registry.sqlite
     registry.sqlite-journal
@@ -60,7 +67,7 @@ append_ignore() {
     registry.sqlite-shm
   )
   if [[ ! -f "$file" ]]; then
-    printf '%s\n' "${lines[@]}" > "$file"
+    printf '%s\n' "${lines[@]}" > "$file" || exit 1
     return 0
   fi
   for line in "${lines[@]}"; do
@@ -68,115 +75,68 @@ append_ignore() {
       continue
     fi
     if [[ -s "$file" ]]; then
-      printf '\n%s\n' "$line" >> "$file"
+      printf '\n%s\n' "$line" >> "$file" || exit 1
     else
-      printf '%s\n' "$line" >> "$file"
+      printf '%s\n' "$line" >> "$file" || exit 1
     fi
+    wrote=1
   done
+  [[ "$wrote" -eq 1 ]]
 }
 
-overwrite_project() {
-  local dest="$1" srcf base formats_existed=0
+copy_if_changed() {
+  local from="$1" to="$2"
+  if [[ -f "$to" ]] && cmp -s "$from" "$to"; then
+    return 1
+  fi
+  cp -f "$from" "$to" || exit 1
+}
+
+refresh_project() {
+  local dest="$1" name srcf base
+  local -a changed=() bases=()
+  name="$(basename "$dest")"
   mkdir -p "$dest/formats" "$dest/scripts"
-  if [[ -f "$dest/AGENTS.md" ]]; then
-    cp -f "$root/AGENTS.md" "$dest/AGENTS.md"
-    echo "AGENTS.md updated"
-  else
-    cp "$root/AGENTS.md" "$dest/AGENTS.md"
-    echo "AGENTS.md installed"
+  if copy_if_changed "$root/AGENTS.md" "$dest/AGENTS.md"; then
+    changed+=(AGENTS.md)
   fi
   shopt -s nullglob
   for srcf in "$root/formats"/*; do
-    base="$(basename "$srcf")"
-    if [[ -e "$dest/formats/$base" ]]; then
-      formats_existed=1
-    fi
-    cp -f "$srcf" "$dest/formats/$base"
+    [[ -f "$srcf" ]] || continue
+    bases+=("$(basename "$srcf")")
   done
   shopt -u nullglob
-  if [[ "$formats_existed" -eq 1 ]]; then
-    echo "formats updated"
-  else
-    echo "formats installed"
+  if ((${#bases[@]})); then
+    while IFS= read -r base; do
+      [[ -n "$base" ]] || continue
+      if copy_if_changed "$root/formats/$base" "$dest/formats/$base"; then
+        changed+=("formats/$base")
+      fi
+    done < <(printf '%s\n' "${bases[@]}" | LC_ALL=C sort)
   fi
-  if [[ -f "$dest/scripts/index-symbols.py" ]]; then
-    cp -f "$root/scripts/index-symbols.py" "$dest/scripts/index-symbols.py"
-    echo "index-symbols.py updated"
-  else
-    cp "$root/scripts/index-symbols.py" "$dest/scripts/index-symbols.py"
-    echo "index-symbols.py installed"
+  if copy_if_changed "$root/scripts/index-symbols.py" "$dest/scripts/index-symbols.py"; then
+    changed+=(scripts/index-symbols.py)
+  fi
+  if append_ignore "$dest/.gitignore"; then
+    changed+=(".gitignore")
   fi
   if [[ ! -f "$dest/registry.sqlite" ]]; then
     sqlite3 "$dest/registry.sqlite" < "$root/formats/registry.sql"
-    echo "database created"
+    changed+=(registry.sqlite)
   else
     sqlite3 "$dest/registry.sqlite" < "$root/formats/registry.sql"
-    echo "registry.sqlite kept, schema ensured"
   fi
-  append_ignore "$dest/.gitignore"
-}
-
-shopt -s nullglob
-for proj in "$root/projects"/*; do
-  [[ -d "$proj" ]] || continue
-  overwrite_project "$proj"
-done
-shopt -u nullglob
-
-ask() {
-  local prompt="$1" answer
-  while true; do
-    read -r -p "$prompt" answer || exit 1
-    case "$answer" in
-      Oui|oui|O|o) return 0 ;;
-      Non|non|N|n) return 1 ;;
-    esac
-  done
-}
-
-if ask "Mise a jour des readmes ? Oui/Non : "; then
-  shopt -s nullglob
-  for proj in "$root/projects"/*; do
-    [[ -d "$proj" ]] || continue
-    cp -f "$root/README.md" "$proj/README.md"
-  done
-  shopt -u nullglob
-fi
-
-if ! ask "Commit et push vers le depot ? Oui/Non : "; then
-  exit 0
-fi
-
-read -r -p "Commentaire : " comment || exit 1
-if [[ -z "$comment" ]]; then
-  echo "Empty comment."
-  exit 1
-fi
-
-commit_repo() {
-  local repo="$1"
-  if [[ ! -e "$repo/.git" ]]; then
-    return 0
-  fi
-  if [[ "$repo" == "$root" ]]; then
-    if ! protocol_dirty; then
-      return 0
-    fi
-    git -C "$repo" add -A -- . ':!projects'
+  if ((${#changed[@]})); then
+    printf '%s: updated\n' "$name"
+    printf '  %s\n' "${changed[@]}"
   else
-    if [[ -z "$(git -C "$repo" status --porcelain)" ]]; then
-      return 0
-    fi
-    git -C "$repo" add -A
+    printf '%s: current\n' "$name"
   fi
-  git -C "$repo" commit -m "$comment"
-  git -C "$repo" push
 }
 
-commit_repo "$root"
 shopt -s nullglob
 for proj in "$root/projects"/*; do
   [[ -d "$proj" ]] || continue
-  commit_repo "$proj"
+  refresh_project "$proj"
 done
 shopt -u nullglob

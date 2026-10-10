@@ -11,14 +11,16 @@ sources:
   - configs/sources/<key>.md
 preprompt: |
   Execute the task. Do not change the method.
-  Tech: <tech>. Stay within the source, 80 lines.
+  Tech: <tech>. The source is syntax, 80 lines.
+  Laws and rules/AGENT-*.md in the prompt are the project policy.
   Write only under owns.
-  Output = the status/files/config block, nothing else.
+  The status/files/config block is the last block. Prose above it is ignored.
 ```
 
 File: `configs/<key>.md`.
-`key` = `plan` or `impl`, then sorted techs. `plan-vue`, `impl-vue`.
+`key` = `impl`, then sorted techs, for the single agent. `plan` only when `split: plan`. `impl-vue`, `plan-vue`.
 Tech names match `[a-z0-9]+`.
 Present = reuse. A second file is forbidden.
 Source: `configs/sources/<key>.md`, 80 lines max, written once.
+`hash` = first 12 hex of sha256 of that source.
 Preprompt sent once, on the agent first prompt. Never again.

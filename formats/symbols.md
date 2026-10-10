@@ -69,8 +69,21 @@ patterns:
     pattern: fn $NAME($$$A) { $$$B }
   - kind: struct
     pattern: struct $NAME { $$$B }
+
+ext: sh
+lang: bash
+patterns:
+  - kind: function
+    pattern: function_definition
+
+ext: bash
+lang: bash
+patterns:
+  - kind: function
+    pattern: function_definition
 ```
 
+`lang: bash` calls `ast-grep run -l bash --kind function_definition` on the changed files. The pattern text is not passed to `-p`: `$` is shell syntax. The name is the first word, after an optional `function`. That covers `function name`, `function name()`, and `name()`.
 `.vue` uses `lang: script`. Each `<script>` block is read with ast-grep `--stdin`.
 Missing `lang`, and `ts`, `tsx`, or `typescript`, use `ts`. Explicit `js` or `javascript` uses `js`.
 The stored line is the line in the `.vue` file.

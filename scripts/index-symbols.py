@@ -2,6 +2,8 @@
 """Index one module. One ast-grep run per pattern. One SQLite transaction.
 
 Skips a file when files.summary is already the first 12 hex of sha256(bytes).
+Does not hash a file above 1 Mio. ast-grep receives the changed files, not
+their parent directory. Bash uses function_definition nodes, not a $NAME pattern.
 """
 import hashlib
 import json
@@ -12,8 +14,10 @@ import sys
 from pathlib import Path
 
 NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+BASH_FN_RE = re.compile(r"^(?:function[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)")
 SCRIPT_RE = re.compile(r"<script\b([^>]*)>(.*?)</script>", re.IGNORECASE | re.DOTALL)
 LANG_ATTR_RE = re.compile(r"""lang\s*=\s*['"]?([A-Za-z]+)""")
+MAX_BYTES = 1024 * 1024
 
 
 def parse_symbols(text):
@@ -72,13 +76,39 @@ def load_matches(stdout):
     return data
 
 
-def matches(lang, pattern, directory):
+def matches(lang, pattern, paths):
+    if not paths:
+        return []
     proc = subprocess.run(
-        ["ast-grep", "run", "-l", lang, "-p", pattern, "--json", str(directory)],
+        ["ast-grep", "run", "-l", lang, "-p", pattern, "--json", *[str(p) for p in paths]],
         capture_output=True,
         text=True,
     )
     return load_matches(proc.stdout)
+
+
+def bash_matches(paths):
+    if not paths:
+        return []
+    found = []
+    for start in range(0, len(paths), 100):
+        chunk = paths[start : start + 100]
+        proc = subprocess.run(
+            [
+                "ast-grep",
+                "run",
+                "-l",
+                "bash",
+                "--kind",
+                "function_definition",
+                "--json",
+                *[str(p) for p in chunk],
+            ],
+            capture_output=True,
+            text=True,
+        )
+        found.extend(load_matches(proc.stdout))
+    return found
 
 
 def matches_stdin(lang, pattern, source):
@@ -100,6 +130,18 @@ def symbol_name(match):
     )
     line0 = (match.get("range") or {}).get("start", {}).get("line")
     if not name or line0 is None or not NAME_RE.match(name):
+        return None
+    return name, line0 + 1
+
+
+def bash_symbol_name(match):
+    text = match.get("text") or ""
+    line0 = (match.get("range") or {}).get("start", {}).get("line")
+    found = BASH_FN_RE.match(text)
+    if not found or line0 is None:
+        return None
+    name = found.group(1)
+    if not NAME_RE.match(name):
         return None
     return name, line0 + 1
 
@@ -127,6 +169,11 @@ def main():
         file = root / rel
         if not file.is_file():
             continue
+        try:
+            if file.stat().st_size > MAX_BYTES:
+                continue
+        except OSError:
+            continue
         file_hash = digest(file)
         hashes[rel] = file_hash
         if summary != file_hash:
@@ -135,18 +182,21 @@ def main():
         return 0
 
     wanted = set(changed)
-    by_dir = {}
+    by_ext_files = {}
     vue_rels = []
+    bash_rels = []
     for rel in changed:
         ext = Path(rel).suffix.lower().lstrip(".")
         spec = by_ext.get(ext)
         if spec is None:
             continue
+        if spec["lang"] == "bash":
+            bash_rels.append(rel)
+            continue
         if ext == "vue" or spec["lang"] == "script":
             vue_rels.append(rel)
             continue
-        parent = str(Path(rel).parent)
-        by_dir.setdefault((ext, parent), []).append(rel)
+        by_ext_files.setdefault(ext, []).append(rel)
 
     inserts = []
     seen = set()
@@ -162,19 +212,34 @@ def main():
         seen.add(key)
         inserts.append(key)
 
-    for (ext, parent), _paths in by_dir.items():
+    def rel_of(match):
+        raw_file = match.get("file") or ""
+        try:
+            return str(Path(raw_file).resolve().relative_to(root_resolved))
+        except ValueError:
+            return None
+
+    for ext, rels in by_ext_files.items():
         spec = by_ext[ext]
-        directory = root / parent
-        if not directory.is_dir():
-            continue
+        files = [root / rel for rel in rels]
         for kind, pattern in spec["patterns"]:
-            for match in matches(spec["lang"], pattern, directory):
-                raw_file = match.get("file") or ""
-                try:
-                    rel = str(Path(raw_file).resolve().relative_to(root_resolved))
-                except ValueError:
+            for match in matches(spec["lang"], pattern, files):
+                rel = rel_of(match)
+                if rel is None:
                     continue
                 add_hit(rel, kind, symbol_name(match))
+
+    if bash_rels:
+        bash_spec = by_ext.get(Path(bash_rels[0]).suffix.lower().lstrip("."))
+        kind = "function"
+        if bash_spec and bash_spec["patterns"]:
+            kind = bash_spec["patterns"][0][0]
+        files = [root / rel for rel in bash_rels]
+        for match in bash_matches(files):
+            rel = rel_of(match)
+            if rel is None:
+                continue
+            add_hit(rel, kind, bash_symbol_name(match))
 
     vue_spec = by_ext.get("vue")
     if vue_spec:
@@ -200,4 +265,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

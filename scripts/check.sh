@@ -51,6 +51,12 @@ require_text AGENTS.md 'wait -n'
 require_text formats/task.md 'Do not chain'
 require_text formats/module.md 'Disjoint owns inside one concern are several modules and run together.'
 require_text README.md 'Le temps est celui du module le plus lent.'
+require_text README.md '<name>: updated'
+require_text README.md '<name>: current'
+if grep -q 'Mise a jour des readmes' README.md || grep -q 'Commit et push vers le depot' README.md; then
+  echo "README still documents the two questions"
+  exit 1
+fi
 require_text AGENTS.md 'herdr worktree remove --workspace <workspace> --force'
 require_text AGENTS.md 'Do not close the orchestrator tab.'
 require_text AGENTS.md 'git worktree remove'
@@ -61,6 +67,18 @@ require_text formats/task.md 'herdr agent prompt <name> <text> --wait --until id
 require_text formats/agent.md 'workspace: <result.workspace.workspace_id>'
 require_text formats/symbols.md 'ext: vue'
 require_text formats/symbols.md 'lang: script'
+require_text formats/symbols.md 'lang: bash'
+require_text formats/symbols.md 'function_definition'
+require_text AGENTS.md 'Class of the message.'
+require_text AGENTS.md 'git: nested'
+require_text AGENTS.md 'publish:'
+require_text formats/output.md 'Prose above the block is ignored.'
+require_text formats/module.md 'git: parent'
+require_text AGENTS.md 'TTL 600 s'
+require_text AGENTS.md 'at most 50'
+require_text AGENTS.md 'core.fileMode false'
+require_text AGENTS.md 'Do not start a third prompt.'
+require_text formats/lock.md 'epoch + 600'
 
 if grep -R -n --exclude-dir=.git --exclude=check.sh 'worktree remove --label' AGENTS.md formats README.md scripts >/dev/null; then
   echo "Stale --label removal remains."
@@ -144,6 +162,7 @@ PY
 work="$(mktemp -d)"
 real_home="$HOME"
 real_git="$(command -v git)"
+real_sg="$(command -v ast-grep)"
 bashrc_hash=""
 if [[ -f "$real_home/.bashrc" ]]; then
   bashrc_hash="$(sha256sum "$real_home/.bashrc" | awk 'NR==1 {print $1}')"
@@ -239,6 +258,13 @@ fi
 exit 1
 EOF
 chmod 755 "$HOME/.local/bin/gh"
+cat > "$HOME/.local/bin/ast-grep" << EOF
+#!/bin/bash
+printf '%q\n' "\$@" >> "\$HOME/sg.log"
+printf '\n' >> "\$HOME/sg.log"
+exec $(printf '%q' "$real_sg") "\$@"
+EOF
+chmod 755 "$HOME/.local/bin/ast-grep"
 export PATH="$HOME/.local/bin:${PATH}"
 mkdir -p "$HOME"
 server_pid=""
@@ -428,6 +454,12 @@ if grep -E 'node_modules|(^|[[:space:]])dist/' <<<"$map"; then
 fi
 grep -qF 'src/web/**' "$adopt/modules/web/MODULE.md"
 grep -qF 'src/pkg/**' "$adopt/modules/pkg/MODULE.md"
+grep -qxF 'git: parent' "$adopt/modules/web/MODULE.md"
+grep -qxF 'laws: []' "$adopt/modules/web/MODULE.md"
+grep -qxF 'imports: []' "$adopt/modules/web/MODULE.md"
+grep -qxF 'publish:' "$adopt/modules/web/MODULE.md"
+grep -qxF 'check:' "$adopt/modules/web/MODULE.md"
+grep -qxF 'split:' "$adopt/modules/web/MODULE.md"
 [[ -f "$adopt/scripts/index-symbols.py" ]]
 symbol="$(sqlite3 "$adopt/registry.sqlite" "SELECT name || ' ' || kind || ' ' || line FROM symbols WHERE path='src/web/app.ts' ORDER BY name;")"
 grep -qx 'add function 1' <<<"$symbol"
@@ -461,6 +493,81 @@ run_new tracked "$tracked" >/dev/null
 [[ "$(cat "$tracked/src/TRACKED")" == "tracked-body" ]]
 grep -q 'TRACKED -> src/TRACKED' <<<"$(git -C "$tracked" status --porcelain)"
 
+nest="$work/nest"
+mkdir -p "$nest/vendor" "$nest/shared"
+printf 'echo vendor\n' > "$nest/vendor/tool.sh"
+printf 'shared\n' > "$nest/shared/lib.txt"
+ln -s ../shared "$nest/vendor/shared"
+ln -s shared "$nest/alias"
+printf 'note\n' > "$nest/NOTE"
+git -C "$nest" init -b main >/dev/null
+git -C "$nest/vendor" init -b main >/dev/null
+git -C "$nest/vendor" -c user.email=smoke@example.com -c user.name=smoke add tool.sh
+git -C "$nest/vendor" -c user.email=smoke@example.com -c user.name=smoke commit -m init >/dev/null
+git -C "$nest" -c user.email=smoke@example.com -c user.name=smoke add NOTE shared
+git -C "$nest" -c user.email=smoke@example.com -c user.name=smoke commit -m init >/dev/null
+nest_out="$(run_new nestbox "$nest")"
+[[ -d "$nest/vendor/.git" ]]
+[[ ! -e "$nest/src/vendor" ]]
+[[ -L "$nest/vendor/shared" ]]
+[[ "$(readlink "$nest/vendor/shared")" == "../shared" ]]
+[[ -L "$nest/alias" ]]
+[[ "$(readlink "$nest/alias")" == "shared" ]]
+[[ "$(cat "$nest/src/NOTE")" == "note" ]]
+[[ ! -e "$nest/NOTE" ]]
+grep -q 'nested git: vendor' <<<"$nest_out"
+grep -q 'left link: alias' <<<"$nest_out"
+grep -qxF 'git: nested' "$nest/modules/vendor/MODULE.md"
+grep -qxF '/vendor/' "$nest/.gitignore"
+grep -qxF 'git: parent' "$nest/modules/core/MODULE.md"
+grep -qxF 'laws: []' "$nest/modules/core/MODULE.md"
+if sqlite3 "$nest/registry.sqlite" "SELECT path FROM files WHERE path LIKE 'vendor/%';" | grep -q .; then
+  echo "nested repo was indexed in the parent"
+  exit 1
+fi
+
+modes="$work/modes"
+mkdir -p "$modes/src"
+git -C "$modes" init -b main >/dev/null
+printf 'body\n' > "$modes/src/a.txt"
+git -C "$modes" -c user.email=smoke@example.com -c user.name=smoke add src/a.txt
+git -C "$modes" -c user.email=smoke@example.com -c user.name=smoke commit -m init >/dev/null
+git -C "$modes" update-index --chmod=+x src/a.txt
+run_new modest "$modes" >/dev/null
+[[ "$(cat "$modes/src/a.txt")" == "body" ]]
+mode_diff="$(git -C "$modes" diff --numstat; git -C "$modes" diff --cached --numstat)"
+if [[ -n "$mode_diff" ]]; then
+  [[ "$(git -C "$modes" config --get core.fileMode)" == "false" ]]
+fi
+
+idx="$work/idx"
+mkdir -p "$idx/formats" "$idx/src/tool/node_modules"
+cp "$root/formats/symbols.md" "$idx/formats/symbols.md"
+cp "$root/formats/registry.sql" "$idx/formats/registry.sql"
+sqlite3 "$idx/registry.sqlite" < "$idx/formats/registry.sql"
+printf 'function foo() {\n  echo 1\n}\nbar() {\n  echo 2\n}\n' > "$idx/src/tool/run.sh"
+printf 'function sneak() {\n  echo 3\n}\n' > "$idx/src/tool/node_modules/inside.sh"
+python3 - "$idx/src/tool/big.sh" << 'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+path.write_bytes(b"function huge() {\n  echo 4\n}\n" + b"x" * 1048577)
+PY
+sqlite3 "$idx/registry.sqlite" << 'SQL'
+INSERT INTO files(path, module, summary) VALUES ('src/tool/run.sh', 'tool', '');
+INSERT INTO files(path, module, summary) VALUES ('src/tool/big.sh', 'tool', '');
+SQL
+: >"$HOME/sg.log"
+(cd "$idx" && python3 "$root/scripts/index-symbols.py" tool)
+foo="$(sqlite3 "$idx/registry.sqlite" "SELECT name FROM symbols WHERE path='src/tool/run.sh' ORDER BY name;")"
+[[ "$foo" == $'bar\nfoo' ]]
+[[ -z "$(sqlite3 "$idx/registry.sqlite" "SELECT name FROM symbols WHERE name='huge' OR name='sneak';")" ]]
+[[ -z "$(sqlite3 "$idx/registry.sqlite" "SELECT summary FROM files WHERE path='src/tool/big.sh';")" ]]
+if grep -qxF "$idx/src/tool" "$HOME/sg.log" || grep -q 'node_modules' "$HOME/sg.log"; then
+  echo "ast-grep scanned a directory or node_modules"
+  exit 1
+fi
+grep -qxF "$idx/src/tool/run.sh" "$HOME/sg.log"
+
 log_before="$(wc -l <"$HOME/gh.log")"
 if run_new refused "$root"; then
   echo "protocol root was accepted"
@@ -484,7 +591,7 @@ no_origin="$work/no-origin"
 mkdir -p "$no_origin/scripts"
 cp "$root/scripts/update.sh" "$no_origin/scripts/update.sh"
 git -C "$no_origin" init -b main >/dev/null
-if no_out="$(printf 'Non\n' | bash "$no_origin/scripts/update.sh")"; then
+if no_out="$(bash "$no_origin/scripts/update.sh" </dev/null)"; then
   echo "missing origin was accepted"
   exit 1
 fi
@@ -497,7 +604,7 @@ git -C "$dirty" init -b main >/dev/null
 git -C "$dirty" remote add origin "$work/unused.git"
 sync_id "$dirty"
 printf 'x\n' > "$dirty/DIRTY"
-if dirty_out="$(printf 'Non\n' | bash "$dirty/scripts/update.sh")"; then
+if dirty_out="$(bash "$dirty/scripts/update.sh" </dev/null)"; then
   echo "dirty tree was accepted"
   exit 1
 fi
@@ -516,7 +623,7 @@ git -C "$same" add BASE scripts/update.sh
 git -C "$same" commit -m init >/dev/null
 git -C "$same" push -u origin main >/dev/null
 printf 'dirty\n' > "$same/DIRTY"
-if ! same_out="$(printf 'Non\nNon\n' | bash "$same/scripts/update.sh")"; then
+if ! same_out="$(bash "$same/scripts/update.sh" </dev/null)"; then
   echo "up-to-date dirty tree was rejected"
   printf '%s\n' "$same_out"
   exit 1
@@ -524,6 +631,98 @@ fi
 if grep -q 'Dirty tree.' <<<"$same_out"; then
   echo "up-to-date dirty tree printed Dirty tree."
   printf '%s\n' "$same_out"
+  exit 1
+fi
+
+noise="$work/noise"
+noise_bare="$work/noise.git"
+mkdir -p "$noise/scripts" "$noise/.Trash-1000" "$noise/.idea"
+cp "$root/scripts/update.sh" "$noise/scripts/update.sh"
+git init --bare -b main "$noise_bare" >/dev/null
+git -C "$noise" init -b main >/dev/null
+sync_id "$noise"
+git -C "$noise" remote add origin "$noise_bare"
+printf 'base\n' > "$noise/BASE"
+git -C "$noise" add BASE scripts/update.sh
+git -C "$noise" commit -m init >/dev/null
+git -C "$noise" push origin main >/dev/null
+git -C "$noise" config --unset branch.main.remote || true
+git -C "$noise" config --unset branch.main.merge || true
+if git -C "$noise" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
+  echo "noise fixture still has an upstream"
+  exit 1
+fi
+printf 'trash\n' > "$noise/.Trash-1000/files"
+printf 'idea\n' > "$noise/.idea/workspace.xml"
+if ! noise_out="$(bash "$noise/scripts/update.sh" </dev/null)"; then
+  echo "trash and idea without upstream were rejected"
+  printf '%s\n' "$noise_out"
+  exit 1
+fi
+if grep -q 'Dirty tree.' <<<"$noise_out"; then
+  echo "trash and idea printed Dirty tree."
+  printf '%s\n' "$noise_out"
+  exit 1
+fi
+printf 'keep\n' > "$noise/KEEP"
+git -C "$noise" push -u origin main >/dev/null
+noise_rev="$(git -C "$noise" rev-parse HEAD)"
+if ! keep_out="$(bash "$noise/scripts/update.sh" </dev/null)"; then
+  echo "dirty tree update was rejected"
+  printf '%s\n' "$keep_out"
+  exit 1
+fi
+[[ "$(git -C "$noise" rev-parse HEAD)" == "$noise_rev" ]]
+if git -C "$noise" ls-tree -r --name-only HEAD | grep -qxF 'KEEP'; then
+  echo "dirty tree was committed"
+  exit 1
+fi
+keep_names="$(git -C "$noise" ls-tree -r --name-only HEAD)"
+if grep -F '.Trash-1000' <<<"$keep_names" || grep -F '.idea' <<<"$keep_names"; then
+  echo "trash or idea was committed"
+  exit 1
+fi
+
+trash_only="$work/trash-only"
+mkdir -p "$trash_only/scripts" "$trash_only/.Trash-1000"
+cp "$root/scripts/update.sh" "$trash_only/scripts/update.sh"
+git -C "$trash_only" init -b main >/dev/null
+sync_id "$trash_only"
+git -C "$trash_only" add scripts/update.sh
+git -C "$trash_only" commit -m init >/dev/null
+git -C "$trash_only" remote add origin "$work/missing-trash.git"
+printf 't\n' > "$trash_only/.Trash-1000/x"
+if trash_out="$(bash "$trash_only/scripts/update.sh" </dev/null)"; then
+  echo "trash-only missing remote was accepted"
+  printf '%s\n' "$trash_out"
+  exit 1
+fi
+if grep -q 'Dirty tree.' <<<"$trash_out"; then
+  echo "trash-only missing remote printed Dirty tree."
+  printf '%s\n' "$trash_out"
+  exit 1
+fi
+[[ -n "$trash_out" ]]
+
+det="$work/detached"
+mkdir -p "$det/scripts"
+cp "$root/scripts/update.sh" "$det/scripts/update.sh"
+git -C "$det" init -b main >/dev/null
+sync_id "$det"
+printf 'd\n' > "$det/D"
+git -C "$det" add D scripts/update.sh
+git -C "$det" commit -m init >/dev/null
+git -C "$det" remote add origin "$work/missing-detached.git"
+git -C "$det" checkout --detach >/dev/null 2>&1
+if det_out="$(bash "$det/scripts/update.sh" </dev/null)"; then
+  echo "detached head was accepted"
+  printf '%s\n' "$det_out"
+  exit 1
+fi
+grep -q 'Detached head.' <<<"$det_out"
+if grep -q 'Dirty tree.' <<<"$det_out"; then
+  echo "detached head printed Dirty tree."
+  printf '%s\n' "$det_out"
   exit 1
 fi
 
@@ -547,7 +746,7 @@ git -C "$clash_other" add TRACK
 git -C "$clash_other" commit -m ahead >/dev/null
 git -C "$clash_other" push origin main >/dev/null
 printf 'local-dirty\n' > "$clash/TRACK"
-if clash_out="$(printf 'Non\nNon\n' | bash "$clash/scripts/update.sh")"; then
+if clash_out="$(bash "$clash/scripts/update.sh" </dev/null)"; then
   echo "blocked pull was accepted"
   printf '%s\n' "$clash_out"
   exit 1
@@ -613,7 +812,18 @@ git -C "$proto/projects/clean" add -A
 git -C "$proto/projects/clean" commit -m init >/dev/null
 git -C "$proto/projects/clean" push -u origin main >/dev/null
 clean_rev="$(git -C "$proto/projects/clean" rev-parse HEAD)"
-printf 'zzz\nNon\nN\n' | bash "$proto/scripts/update.sh" >/dev/null
+demo_rev="$(git -C "$proto/projects/demo" rev-parse HEAD)"
+sqlite3 "$proto/projects/clean/registry.sqlite" < "$proto/formats/registry.sql"
+if ! upd_out="$(bash "$proto/scripts/update.sh" </dev/null 2>&1)"; then
+  echo "project update failed"
+  printf '%s\n' "$upd_out"
+  exit 1
+fi
+if grep -F 'Mise a jour des readmes' <<<"$upd_out" || grep -F 'Commit et push vers le depot' <<<"$upd_out"; then
+  echo "update printed a question"
+  printf '%s\n' "$upd_out"
+  exit 1
+fi
 [[ -f "$proto/PULLED" ]]
 cmp -s "$proto/AGENTS.md" "$proto/projects/demo/AGENTS.md"
 cmp -s "$proto/formats/task.md" "$proto/projects/demo/formats/task.md"
@@ -628,20 +838,53 @@ grep -qxF 'registry.sqlite-shm' "$proto/projects/demo/.gitignore"
 [[ "$(cat "$proto/projects/demo/README.md")" == "old readme" ]]
 [[ "$(cat "$proto/projects/plain/KEEP")" == "plain" ]]
 sqlite3 "$proto/projects/demo/registry.sqlite" "SELECT count(*) FROM requests;" >/dev/null
-demo_rev="$(git -C "$proto/projects/demo" rev-parse HEAD)"
-if empty_out="$(printf 'o\nO\n\n' | bash "$proto/scripts/update.sh")"; then
-  echo "empty comment was accepted"
+demo_block="$(awk 'BEGIN{p=0} $0=="demo: updated"{p=1; next} p && /^  /{print; next} p{exit}' <<<"$upd_out")"
+expected="  AGENTS.md"
+shopt -s nullglob
+format_bases=()
+for srcf in "$proto/formats"/*; do
+  [[ -f "$srcf" ]] || continue
+  format_bases+=("$(basename "$srcf")")
+done
+shopt -u nullglob
+while IFS= read -r base; do
+  [[ -n "$base" ]] || continue
+  expected+=$'\n  formats/'"$base"
+done < <(printf '%s\n' "${format_bases[@]}" | LC_ALL=C sort)
+expected+=$'\n  scripts/index-symbols.py'
+expected+=$'\n  .gitignore'
+expected+=$'\n  registry.sqlite'
+if [[ "$demo_block" != "$expected" ]]; then
+  echo "demo report mismatch"
+  printf '%s\n' "$demo_block"
   exit 1
 fi
-grep -q 'Empty comment.' <<<"$empty_out"
-cmp -s "$proto/README.md" "$proto/projects/demo/README.md"
+grep -qxF 'clean: current' <<<"$upd_out"
+if grep -qxF 'clean: updated' <<<"$upd_out"; then
+  echo "matching project was updated"
+  printf '%s\n' "$upd_out"
+  exit 1
+fi
+grep -qxF 'plain: updated' <<<"$upd_out"
 [[ "$(git -C "$proto/projects/demo" rev-parse HEAD)" == "$demo_rev" ]]
-note="sync note"
-printf 'non\nOui\n%s\n' "$note" | bash "$proto/scripts/update.sh" >/dev/null
-[[ "$(git -C "$proto/projects/demo" log -1 --format=%s)" == "$note" ]]
-[[ "$(git --git-dir="$proj_bare" log -1 --format=%s)" == "$note" ]]
 [[ "$(git -C "$proto/projects/clean" rev-parse HEAD)" == "$clean_rev" ]]
+[[ "$(git --git-dir="$proj_bare" log -1 --format=%s)" == "init" ]]
 [[ "$(git -C "$proto" log -1 --format=%s)" == "pulled" ]]
+if ! second_out="$(bash "$proto/scripts/update.sh" </dev/null 2>&1)"; then
+  echo "second update failed"
+  printf '%s\n' "$second_out"
+  exit 1
+fi
+grep -qxF 'demo: current' <<<"$second_out"
+grep -qxF 'clean: current' <<<"$second_out"
+grep -qxF 'plain: current' <<<"$second_out"
+if grep -qxF 'demo: updated' <<<"$second_out"; then
+  echo "second run updated demo"
+  printf '%s\n' "$second_out"
+  exit 1
+fi
+[[ "$(cat "$proto/projects/demo/README.md")" == "old readme" ]]
+[[ "$(git -C "$proto/projects/demo" rev-parse HEAD)" == "$demo_rev" ]]
 [[ "$(cat "$proto/projects/demo/FOREIGN")" == "foreign" ]]
 
 bad="$work/bad-proto"
@@ -668,10 +911,15 @@ git -C "$badproj" commit -m init >/dev/null
 git -C "$badproj" remote add origin "$work/missing-remote.git"
 git -C "$badproj" config branch.main.remote origin
 git -C "$badproj" config branch.main.merge refs/heads/main
-if printf 'Non\nOui\nfail-push\n' | bash "$bad/scripts/update.sh" >/dev/null; then
-  echo "push failure was accepted"
+bad_rev="$(git -C "$badproj" rev-parse HEAD)"
+if ! bad_out="$(bash "$bad/scripts/update.sh" </dev/null 2>&1)"; then
+  echo "bad project remote failed the update"
+  printf '%s\n' "$bad_out"
   exit 1
 fi
+grep -qxF 'bad: updated' <<<"$bad_out"
+grep -qxF '  AGENTS.md' <<<"$bad_out"
+[[ "$(git -C "$badproj" rev-parse HEAD)" == "$bad_rev" ]]
 
 repo="$work/smoke"
 mkdir -p "$repo"
