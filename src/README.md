@@ -35,13 +35,13 @@ bash scripts/install.sh
 
 Le script saute une étape déjà faite. Il n'écrit pas `config.toml`. Si `herdr integration status` ne montre pas `grok: current`, il installe le hook dans `~/.grok/hooks/`.
 
-Sans droit root, `sqlite3`, `rg` et `ast-grep` sont installés dans `~/.local/bin`. `curl`, `unzip` et les certificats demandent encore root.
+Sans droit root, `sqlite3`, `rg` et `ast-grep` sont installés dans `~/.local/bin`. `curl`, `unzip`, les certificats, `python3`, `git`, `gh` et `shellcheck` demandent encore root.
 
 ## Outils Ubuntu 26.04
 
-Installés par le script s'ils manquent : `sqlite3`, `rg` (`ripgrep`), `ast-grep`.
+Installés par le script s'ils manquent : `sqlite3`, `rg` (`ripgrep`), `ast-grep`, `python3`, `git`, `gh`, `shellcheck`.
 
-`ast-grep` n'est pas dans apt. Le binaire Linux s'appelle `sg`. Le protocole appelle `ast-grep`.
+`ast-grep` n'est pas dans apt. Le binaire Linux s'appelle `sg`. Le protocole appelle `ast-grep`. `python3`, `git`, `gh` et `shellcheck` viennent d'apt.
 
 Vérifier :
 
@@ -49,9 +49,13 @@ Vérifier :
 sqlite3 --version
 rg --version
 ast-grep --version
+python3 --version
+git --version
+gh --version
+shellcheck --version
 ```
 
-Les trois commandes doivent répondre. Sinon ne pas lancer de projet.
+Ces commandes doivent répondre. Sinon ne pas lancer de projet.
 
 La base n'est pas créée ici. Elle l'est au lancement, depuis `formats/registry.sql`. Tables : `requests`, `files`, `symbols`, `locks`. `registry.sqlite` et ses journaux sont ignorés par git, à la racine et dans chaque projet créé.
 
