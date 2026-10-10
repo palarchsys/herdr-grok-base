@@ -92,6 +92,10 @@ command -v curl >/dev/null 2>&1 || missing+=(curl)
 command -v unzip >/dev/null 2>&1 || missing+=(unzip)
 command -v sqlite3 >/dev/null 2>&1 || missing+=(sqlite3)
 command -v rg >/dev/null 2>&1 || missing+=(ripgrep)
+command -v python3 >/dev/null 2>&1 || missing+=(python3)
+command -v git >/dev/null 2>&1 || missing+=(git)
+command -v shellcheck >/dev/null 2>&1 || missing+=(shellcheck)
+command -v gh >/dev/null 2>&1 || missing+=(gh)
 if [[ ! -s /etc/ssl/certs/ca-certificates.crt ]]; then
   missing+=(ca-certificates)
 fi
@@ -114,7 +118,7 @@ if ((${#missing[@]})); then
     done
   fi
 else
-  step "curl unzip sqlite3 rg ca-certificates already installed"
+  step "curl unzip sqlite3 rg python3 git shellcheck gh ca-certificates already installed"
 fi
 
 if command -v herdr >/dev/null 2>&1; then
@@ -180,6 +184,10 @@ step "check"
 sqlite3 --version
 rg --version
 ast-grep --version
+python3 --version
+git --version
+shellcheck --version
+gh --version
 herdr --version
 grok --version
 echo "Install done. Grok config not overwritten."

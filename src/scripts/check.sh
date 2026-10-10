@@ -26,6 +26,12 @@ if ! grep -q 'state" == "current"' scripts/install.sh; then
   echo "install.sh must keep the grok integration only when it is current."
   exit 1
 fi
+for tool in python3 git shellcheck gh; do
+  if ! grep -q "missing+=(${tool})" scripts/install.sh; then
+    echo "install.sh must install ${tool}"
+    exit 1
+  fi
+done
 if grep -q 'bashrc\|herdr-grok-base:' scripts/new-project.sh; then
   echo "new-project.sh still mentions bashrc"
   exit 1
