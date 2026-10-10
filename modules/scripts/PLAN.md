@@ -19,6 +19,12 @@ That agent writes this plan, then the code, and the orchestrator makes one commi
 A symlink stays a symlink.
 `publish` empty means a later `git` message commits the owns and pushes that repository. A set `publish` command is the project's own publish. The protocol does not name that command.
 
+## Bounds
+
+Import names: at most 50, paths named in the task, else the first 50, then `<n> more`.
+Lock TTL is 600 s, the same as the prompt timeout. One second prompt in the same pane. Then the module is `failed` and the request is not left `open`.
+A mode-only diff is restored before an edit opens a module. If it returns, `core.fileMode` is false.
+
 ## Index
 
 After the merge, once. Bash functions come from `function_definition`. No hash above 1 Mio. ast-grep receives the changed files.

@@ -74,6 +74,11 @@ require_text AGENTS.md 'git: nested'
 require_text AGENTS.md 'publish:'
 require_text formats/output.md 'Prose above the block is ignored.'
 require_text formats/module.md 'git: parent'
+require_text AGENTS.md 'TTL 600 s'
+require_text AGENTS.md 'at most 50'
+require_text AGENTS.md 'core.fileMode false'
+require_text AGENTS.md 'Do not start a third prompt.'
+require_text formats/lock.md 'epoch + 600'
 
 if grep -R -n --exclude-dir=.git --exclude=check.sh 'worktree remove --label' AGENTS.md formats README.md scripts >/dev/null; then
   echo "Stale --label removal remains."
