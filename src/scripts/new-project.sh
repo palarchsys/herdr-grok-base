@@ -127,6 +127,104 @@ append_ignore() {
   done
 }
 
+ensure_ignore_line() {
+  local file="$1" line="$2"
+  if [[ -f "$file" ]] && grep -qxF "$line" "$file"; then
+    return 0
+  fi
+  if [[ -s "$file" ]]; then
+    printf '\n%s\n' "$line" >> "$file"
+  else
+    printf '%s\n' "$line" >> "$file"
+  fi
+}
+
+note_nested() {
+  local name="$1" rel="$2"
+  ensure_ignore_line "$dest/.gitignore" "/${rel}/"
+  echo "nested git: $rel"
+  [[ "$name" =~ $module_re ]] || return 0
+  nested_kind["$name"]=nested
+  nested_owns["$name"]="${rel}/**"
+}
+
+restore_mode_only() {
+  local line added deleted rest content=0 mode=0
+  [[ -e "$dest/.git" ]] || return 0
+  git -C "$dest" rev-parse --verify HEAD >/dev/null 2>&1 || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -n "$line" ]] || continue
+    if [[ "$line" == *" => "* ]]; then
+      content=1
+      continue
+    fi
+    added="${line%%$'\t'*}"
+    rest="${line#*$'\t'}"
+    deleted="${rest%%$'\t'*}"
+    if [[ "$added" == "0" && "$deleted" == "0" ]]; then
+      mode=1
+    else
+      content=1
+    fi
+  done < <(git -C "$dest" diff --numstat; git -C "$dest" diff --cached --numstat)
+  if [[ "$content" -eq 1 || "$mode" -eq 0 ]]; then
+    return 0
+  fi
+  git -C "$dest" restore --source=HEAD --worktree --staged -- .
+  mode=0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -n "$line" ]] || continue
+    [[ "$line" == *" => "* ]] && continue
+    added="${line%%$'\t'*}"
+    rest="${line#*$'\t'}"
+    deleted="${rest%%$'\t'*}"
+    if [[ "$added" == "0" && "$deleted" == "0" ]]; then
+      mode=1
+    fi
+  done < <(git -C "$dest" diff --numstat; git -C "$dest" diff --cached --numstat)
+  if [[ "$mode" -eq 1 ]]; then
+    git -C "$dest" config core.fileMode false
+  fi
+}
+
+write_module() {
+  local module="$1" git_kind="$2" glob
+  local moddir="$dest/modules/$module"
+  mkdir -p "$moddir"
+  if [[ -f "$moddir/MODULE.md" ]]; then
+    return 0
+  fi
+  {
+    printf 'id: %s\n' "$module"
+    printf 'owns:\n'
+    if [[ "$git_kind" == "nested" && -n "${nested_owns[$module]:-}" ]]; then
+      printf '  - %s\n' "${nested_owns[$module]}"
+    fi
+    if [[ -n "${mod_globs[$module]:-}" ]]; then
+      while IFS= read -r glob; do
+        [[ -n "$glob" ]] || continue
+        printf '  - %s\n' "$glob"
+      done < <(printf '%s\n' "${mod_globs[$module]}" | sed '/^$/d' | sort -u)
+    fi
+    printf '  - modules/%s/PLAN.md\n' "$module"
+    cat << EOF
+laws: []
+imports: []
+events_in: []
+events_out: []
+check:
+publish:
+git: ${git_kind}
+split:
+forbidden:
+  - write outside owns
+  - read requests, agents, locks, or the database
+  - call an agent
+  - open a tab
+EOF
+  } > "$moddir/MODULE.md"
+}
+
 append_ignore "$dest/.gitignore"
 
 if [[ ! -d "$dest/.git" ]]; then
@@ -240,6 +338,14 @@ move_foreign() {
         continue
         ;;
     esac
+    if [[ -L "$entry" ]]; then
+      echo "left link: $name"
+      continue
+    fi
+    if [[ -e "$entry/.git" ]]; then
+      note_nested "$name" "$name"
+      continue
+    fi
     move_entry "$name" "src/$name" "$name"
   done
   for entry in "$dest/scripts"/*; do
@@ -255,7 +361,24 @@ move_foreign() {
   fi
 }
 
+declare -A nested_kind=()
+declare -A nested_owns=()
+
 move_foreign
+
+if [[ -d "$dest/src" ]]; then
+  shopt -s nullglob
+  for entry in "$dest/src"/*; do
+    name="$(basename "$entry")"
+    if [[ -L "$entry" ]]; then
+      continue
+    fi
+    if [[ -e "$entry/.git" ]]; then
+      note_nested "$name" "src/$name"
+    fi
+  done
+  shopt -u nullglob
+fi
 
 if [[ "$adopt" -eq 1 ]]; then
   echo "Indexing existing files."
@@ -280,6 +403,17 @@ if [[ "$adopt" -eq 1 ]]; then
     [[ "$rel" =~ $skip ]] && continue
     [[ "$rel" == "AGENTS.md" || "$rel" == "registry.sqlite" ]] && continue
     [[ "$rel" =~ (^|/)(node_modules|dist|target|\.venv|venv|__pycache__)(/|$) ]] && continue
+    if [[ "${#nested_owns[@]}" -gt 0 ]]; then
+      skip_rel=0
+      for id in "${!nested_owns[@]}"; do
+        prefix="${nested_owns[$id]%/\*\*}"
+        if [[ "$rel" == "$prefix" || "$rel" == "$prefix"/* ]]; then
+          skip_rel=1
+          break
+        fi
+      done
+      [[ "$skip_rel" -eq 0 ]] || continue
+    fi
     classify "$rel"
     sql_rel="${rel//\'/\'\'}"
     sql_mod="${module//\'/\'\'}"
@@ -293,31 +427,16 @@ if [[ "$adopt" -eq 1 ]]; then
   rm -f "$sqlf"
   if [[ "${#mod_globs[@]}" -gt 0 ]]; then
     for module in "${!mod_globs[@]}"; do
-      moddir="$dest/modules/$module"
-      mkdir -p "$moddir"
-      if [[ -f "$moddir/MODULE.md" ]]; then
-        continue
+      git_kind="parent"
+      if [[ "${nested_kind[$module]:-}" == "nested" ]]; then
+        git_kind="nested"
       fi
-      {
-        printf 'id: %s\n' "$module"
-        printf 'owns:\n'
-        while IFS= read -r glob; do
-          [[ -n "$glob" ]] || continue
-          printf '  - %s\n' "$glob"
-        done < <(printf '%s\n' "${mod_globs[$module]}" | sed '/^$/d' | sort -u)
-        printf '  - modules/%s/PLAN.md\n' "$module"
-        cat << 'EOF'
-exports: []
-imports: []
-events_in: []
-events_out: []
-forbidden:
-  - write outside owns
-  - read requests configs agents locks rules
-  - call an agent
-  - open a tab
-EOF
-      } > "$moddir/MODULE.md"
+      write_module "$module" "$git_kind"
+    done
+  fi
+  if [[ "${#nested_kind[@]}" -gt 0 ]]; then
+    for module in "${!nested_kind[@]}"; do
+      write_module "$module" "nested"
     done
   fi
   if [[ ! -f "$dest/requests/r-adopt-0.md" ]]; then
@@ -344,6 +463,7 @@ EOF
       (cd "$dest" && python3 scripts/index-symbols.py "$module")
     done
   fi
+  restore_mode_only
   echo "Adopted. Modules written only where missing."
 fi
 
