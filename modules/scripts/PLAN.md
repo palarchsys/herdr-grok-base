@@ -1,45 +1,32 @@
-# scripts sync
+# scripts pull gate
 
-## Move
+## Gate
 
-When the destination already has entries (existing directory or cloned repo), after the scaffold and before the index:
+`scripts/update.sh`. Root is the parent of `scripts/`.
 
-- Never move: `.git`, `.gitignore`, `AGENTS.md`, `formats`, `rules`, `requests`, `configs`, `agents`, `modules`, `src`, `scripts`, `registry.sqlite`, `registry.sqlite-journal`, `registry.sqlite-wal`, `registry.sqlite-shm`.
-- Every other root entry moves to `src/<name>`. If `src/<name>` exists, print `left in place: <name>` and skip.
-- Other files in `scripts/` besides `index-symbols.py` move to `src/scripts/<name>` with the same collision rule.
-- Tracked path: `git mv`. Otherwise `mv`.
-- An empty `gh repo create --clone` has nothing to move.
-- Do not move the protocol root. The refusal stays before `gh`.
-- A cloned repo's `CLONE_MARKER` moves to `src/CLONE_MARKER`.
+- No `origin`: print `No origin.` and exit 1. This stays before the pull.
+- Do not reject a dirty tree before `git pull --ff-only`.
+- Pull exit 0: continue, even when a protocol path outside `projects/` is dirty. Then the same overwrite of each `projects/*` and the same two questions.
+- Pull exit non-zero, and a protocol path outside `projects/` is dirty: print `Dirty tree.`, then each of those paths, one per line, and exit 1. Do not refresh `projects/`. Leave file bytes as they were.
+- Pull exit non-zero and the protocol tree is clean: print the git error and exit 1.
+- Dirty paths come from `git status --porcelain`. Drop the `XY ` prefix. A rename uses the path after ` -> `. Strip quotes. `projects` and `projects/*` stay out of the set.
+- Do not change the questions, the commit paths, or `new-project.sh`.
+- Do not change `install.sh` or `index-symbols.py`.
 
-## Overwrite
+## Tests
 
-From the protocol root, even when the file exists: `AGENTS.md`, every file in `formats/`, `scripts/index-symbols.py`.
+In `check.sh`, with no network:
 
-- Print `AGENTS.md installed` or `AGENTS.md updated`.
-- Print `formats installed` or `formats updated`.
-- Print `index-symbols.py installed` or `index-symbols.py updated`.
-- Append any missing `registry.sqlite` gitignore lines. Do not replace the rest. Do not move `.gitignore`.
-
-`check.sh`: replace the `AGENTS.md kept` assertion and the mtime check with content equal to the protocol `AGENTS.md` and the text `AGENTS.md updated`.
-
-## update.sh
-
-Add `scripts/update.sh`. Root is the parent of `scripts/`.
-
-- `git -C root pull --ff-only`. No origin, or a dirty tree: exit 1 and say why.
-- Each directory in `projects/*` gets the same overwrite of `AGENTS.md`, `formats/*`, `scripts/index-symbols.py`, the schema, and the gitignore lines.
-- Do not move foreign files. Do not clone.
-- Repeat until the answer is Oui or Non (`Oui` `oui` `O` `o` / `Non` `non` `N` `n`).
-- `Mise a jour des readmes ? Oui/Non :` — Oui copies root `README.md` over each `projects/<name>/README.md`. Non goes to the next question.
-- `Commit et push vers le depot ? Oui/Non :` — Oui prompts `Commentaire : `. An empty comment exits 1. For root and each `projects/*` that has `.git`, when the tree is dirty: `git add -A`, commit with that message, `git push`. A clean repo is skipped. A push failure exits 1. Non exits 0.
-- `check.sh` proves this with a local bare remote. No network and no real push.
-- Shellcheck includes `scripts/update.sh`.
-
-## Smoke
-
-`herdr worktree create --cwd` on the temp repo also leaves a workspace on that repo. In cleanup, before `rm -rf` of the temp dir: `herdr workspace list`, then `herdr workspace close` for every workspace whose `checkout_path` or `repo_root` is inside that temp dir. Do the same after the smoke test and assert that none remain. Do not close any other workspace. Keep the linked worktree remove.
+- Missing origin still prints `No origin.`
+- Dirty tree and a missing remote still print `Dirty tree.`
+- Dirty tree, real bare origin, HEAD not behind: answers `Non` then `Non`, exit 0, and the output has no `Dirty tree.`
+- Dirty tracked file, origin one commit ahead that edits that file: exit 1, output contains `Dirty tree.` and that path, file bytes unchanged.
+- The clean local bare pull, overwrite, readme, and commit tests stay.
 
 ## README
 
-French. Document the move, the overwrite, `scripts/update.sh`, the two questions, and that `check.sh` closes Herdr workspaces under its temp dir. Delete the sentences that say nothing is moved and that an existing `AGENTS.md` is kept.
+French, in `src/README.md`.
+
+- A dirty tree does not stop `scripts/update.sh` when `git pull --ff-only` succeeds.
+- When pull fails because the protocol tree is dirty, the script exits 1, prints `Dirty tree.`, and lists the paths.
+- No `origin` still exits 1. Paths under `projects/` still do not make the root dirty.
