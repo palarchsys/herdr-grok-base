@@ -26,6 +26,10 @@ if ! grep -q 'state" == "current"' scripts/install.sh; then
   echo "install.sh must keep the grok integration only when it is current."
   exit 1
 fi
+if grep -q 'bashrc\|herdr-grok-base:' scripts/new-project.sh; then
+  echo "new-project.sh still mentions bashrc"
+  exit 1
+fi
 
 require_text() {
   local file="$1" text="$2"
@@ -140,14 +144,101 @@ PY
 work="$(mktemp -d)"
 real_home="$HOME"
 real_git="$(command -v git)"
+bashrc_hash=""
+if [[ -f "$real_home/.bashrc" ]]; then
+  bashrc_hash="$(sha256sum "$real_home/.bashrc" | awk 'NR==1 {print $1}')"
+fi
 export HOME="$work/home"
-mkdir -p "$HOME/.local/bin"
+mkdir -p "$HOME/.local/bin" "$HOME/gh-state/present" "$HOME/gh-state/fail"
 cat > "$HOME/.local/bin/git" << EOF
 #!/bin/bash
 export HOME=$(printf '%q' "$real_home")
 exec $(printf '%q' "$real_git") "\$@"
 EOF
 chmod 755 "$HOME/.local/bin/git"
+cat > "$HOME/.local/bin/gh" << 'EOF'
+#!/bin/bash
+set -euo pipefail
+log="$HOME/gh.log"
+state="$HOME/gh-state"
+mkdir -p "$state/present" "$state/fail"
+printf '%s\n' "$*" >>"$log"
+
+if [[ "${1:-}" == "api" && "${2:-}" == "user" && "${3:-}" == "--jq" && "${4:-}" == ".login" ]]; then
+  printf 'tester\n'
+  exit 0
+fi
+
+if [[ "${1:-}" == "repo" && "${2:-}" == "view" ]]; then
+  slug="${3:-}"
+  name="${slug##*/}"
+  if [[ -e "$state/fail/$name" ]]; then
+    printf 'HTTP 401\n'
+    exit 1
+  fi
+  json="${5:-}"
+  if [[ "${4:-}" == "--json" && "$json" == "name" ]]; then
+    if [[ -e "$state/present/$name" ]]; then
+      printf '{"name":"%s"}\n' "$name"
+      exit 0
+    fi
+    printf "Could not resolve to a Repository with the name '%s'.\n" "$slug"
+    exit 1
+  fi
+  if [[ "${4:-}" == "--json" && "$json" == "url" ]]; then
+    if [[ -e "$state/present/$name" ]]; then
+      printf 'https://github.com/%s\n' "$slug"
+      exit 0
+    fi
+    printf "Could not resolve to a Repository with the name '%s'.\n" "$slug"
+    exit 1
+  fi
+  printf 'HTTP 401\n'
+  exit 1
+fi
+
+if [[ "${1:-}" == "repo" && "${2:-}" == "clone" ]]; then
+  slug="${3:-}"
+  dest="${4:-}"
+  name="${slug##*/}"
+  git init -b main "$dest"
+  git -C "$dest" remote add origin "https://github.com/${slug}.git"
+  printf 'clone-marker\n' >"$dest/CLONE_MARKER"
+  : >"$state/present/$name"
+  exit 0
+fi
+
+if [[ "${1:-}" == "repo" && "${2:-}" == "create" ]]; then
+  for arg in "$@"; do
+    if [[ "$arg" == "--public" || "$arg" == "--push" ]]; then
+      exit 1
+    fi
+  done
+  name="${3:-}"
+  mode=""
+  for arg in "$@"; do
+    if [[ "$arg" == "--clone" ]]; then
+      mode="clone"
+    elif [[ "$arg" == "--source" ]]; then
+      mode="source"
+    fi
+  done
+  if [[ "$mode" == "clone" ]]; then
+    git init -b main "$name"
+    git -C "$name" remote add origin "https://github.com/tester/${name}.git"
+    : >"$state/present/$name"
+    exit 0
+  fi
+  if [[ "$mode" == "source" ]]; then
+    : >"$state/present/$name"
+    exit 0
+  fi
+  exit 1
+fi
+
+exit 1
+EOF
+chmod 755 "$HOME/.local/bin/gh"
 export PATH="$HOME/.local/bin:${PATH}"
 mkdir -p "$HOME"
 server_pid=""
@@ -172,71 +263,75 @@ run_new() {
 
 fresh="chk${RANDOM}"
 names+=("$fresh")
-run_new "$fresh" ""
+fresh_out="$(run_new "$fresh" "")"
 fresh_dir="$root/projects/$fresh"
 [[ -f "$fresh_dir/AGENTS.md" ]]
 [[ -f "$fresh_dir/formats/symbols.md" ]]
 [[ -f "$fresh_dir/registry.sqlite" ]]
 [[ "$(git -C "$fresh_dir" symbolic-ref --short HEAD)" == "main" ]]
 git -C "$fresh_dir" check-ignore -q registry.sqlite
-if ! grep -qF "herdr-$fresh()" "$HOME/.bashrc"; then
-  echo "bashrc function missing"
+[[ ! -e "$fresh_dir/requests/r-adopt-0.md" ]]
+grep -qF "repo create $fresh --private --clone" "$HOME/gh.log"
+if grep -F -e '--public' -e '--push' "$HOME/gh.log"; then
+  echo "public or push was passed"
   exit 1
 fi
-begin="# herdr-grok-base:${fresh}"
-end="# herdr-grok-base:${fresh}:end"
-[[ "$(grep -cxF "$begin" "$HOME/.bashrc")" -eq 1 ]]
-[[ "$(grep -cxF "$end" "$HOME/.bashrc")" -eq 1 ]]
+if grep -q 'bashrc' <<<"$fresh_out"; then
+  echo "bashrc still mentioned"
+  exit 1
+fi
+closing="$(printf 'Ready:\n  %s\nRepository: tester/%s' "$fresh_dir" "$fresh")"
+[[ "$(tail -n 3 <<<"$fresh_out")" == "$closing" ]]
 
 agents_before="$(stat -c %Y "$fresh_dir/AGENTS.md")"
 second="$(run_new "$fresh" "")"
 grep -q "AGENTS.md kept" <<<"$second"
-grep -q "command herdr-$fresh already in bashrc" <<<"$second"
 [[ "$(stat -c %Y "$fresh_dir/AGENTS.md")" == "$agents_before" ]]
 
-python3 - "$HOME/.bashrc" "$begin" "$end" << 'PY'
-import pathlib, sys
-path, begin, end = sys.argv[1:]
-text = pathlib.Path(path).read_text()
-start = text.index(begin)
-stop = text.index(end, start)
-block = text[start:stop]
-old = "  cd /tmp/not-the-project || return 1\n"
-if "  cd " not in block:
-    raise SystemExit("cd line missing")
-text = text[:start] + block.replace(block[block.index("  cd "):block.index(" || return 1\n")+len(" || return 1\n")], old) + text[stop:]
-# duplicate the end marker, then a sentinel that must survive
-stop = text.index(end, start)
-insert_at = stop + len(end)
-text = text[:insert_at] + "\n" + end + "\nKEEP_ME\n" + text[insert_at:]
-pathlib.Path(path).write_text(text)
-PY
-updated="$(run_new "$fresh" "")"
-grep -q "command herdr-$fresh updated" <<<"$updated"
-[[ "$(grep -cF "$end" "$HOME/.bashrc")" -eq 1 ]]
-[[ "$(grep -cF "KEEP_ME" "$HOME/.bashrc")" -eq 1 ]]
-dest_q="$(printf '%q' "$fresh_dir")"
-grep -qF "cd ${dest_q} " "$HOME/.bashrc"
+present="cln${RANDOM}"
+names+=("$present")
+touch "$HOME/gh-state/present/$present"
+run_new "$present" "" >/dev/null
+present_dir="$root/projects/$present"
+grep -qF "repo clone tester/${present} ${present_dir}" "$HOME/gh.log"
+[[ "$(cat "$present_dir/CLONE_MARKER")" == "clone-marker" ]]
+[[ -f "$present_dir/AGENTS.md" ]]
+[[ -f "$present_dir/requests/r-adopt-0.md" ]]
+if grep -qF "repo create ${present}" "$HOME/gh.log"; then
+  echo "existing repo was created: $present"
+  exit 1
+fi
 
-legacy_dir="$work/legacy"
-mkdir -p "$legacy_dir"
-cat > "$HOME/.bashrc.legacy" << EOF
-# herdr-grok-base:legacy
-herdr-legacy() {
-  cd /tmp/nope || return 1
-  exec herdr
-}
-KEEP_LEGACY
-tail line
-EOF
-mv "$HOME/.bashrc" "$HOME/.bashrc.full"
-cp "$HOME/.bashrc.legacy" "$HOME/.bashrc"
-run_new legacy "$legacy_dir" >/dev/null
-[[ "$(grep -cF '# herdr-grok-base:legacy:end' "$HOME/.bashrc")" -eq 1 ]]
-grep -qF 'KEEP_LEGACY' "$HOME/.bashrc"
-grep -qF 'tail line' "$HOME/.bashrc"
-grep -qF "cd $(printf '%q' "$legacy_dir") " "$HOME/.bashrc"
-mv "$HOME/.bashrc.full" "$HOME/.bashrc"
+placed="dir${RANDOM}"
+placed_dir="$work/placed-$placed"
+mkdir -p "$placed_dir"
+printf 'sentinel\n' >"$placed_dir/SENTINEL"
+run_new "$placed" "$placed_dir" >/dev/null
+placed_abs="$(cd "$placed_dir" && pwd)"
+grep -qF "repo create ${placed} --private --source ${placed_abs} --remote origin" "$HOME/gh.log"
+if grep -qF "repo clone tester/${placed}" "$HOME/gh.log"; then
+  echo "existing directory was cloned: $placed"
+  exit 1
+fi
+[[ "$(cat "$placed_dir/SENTINEL")" == "sentinel" ]]
+[[ -f "$placed_dir/requests/r-adopt-0.md" ]]
+
+broken="bad${RANDOM}"
+names+=("$broken")
+touch "$HOME/gh-state/fail/$broken"
+if run_new "$broken" ""; then
+  echo "hard view failure was accepted"
+  exit 1
+fi
+[[ ! -d "$root/projects/$broken" ]]
+if grep -qF "repo clone tester/${broken}" "$HOME/gh.log"; then
+  echo "hard failure cloned"
+  exit 1
+fi
+if grep -qF "repo create ${broken}" "$HOME/gh.log"; then
+  echo "hard failure created"
+  exit 1
+fi
 
 adopt="$work/adopted"
 mkdir -p "$adopt/src/web" "$adopt/pkg" "$adopt/node_modules" "$adopt/dist"
@@ -294,12 +389,19 @@ expect="$(printf '%s' 'Adopted existing tree. Files indexed. Source not moved.' 
 [[ "$adopt_hash" == "$expect" ]]
 git -C "$adopt" check-ignore -q registry.sqlite
 
+log_before="$(wc -l <"$HOME/gh.log")"
 if run_new refused "$root"; then
   echo "protocol root was accepted"
   exit 1
 fi
 [[ ! -e "$root/registry.sqlite" ]]
 [[ ! -d "$root/requests" ]]
+log_after="$(tail -n +"$((log_before + 1))" "$HOME/gh.log" || true)"
+if [[ -n "$log_after" ]]; then
+  echo "protocol root called gh"
+  printf '%s\n' "$log_after"
+  exit 1
+fi
 
 repo="$work/smoke"
 mkdir -p "$repo"
@@ -363,6 +465,21 @@ if [[ "$was_running" -eq 0 ]]; then
   herdr server stop >/dev/null 2>&1 || true
   kill "$server_pid" >/dev/null 2>&1 || true
   server_pid=""
+fi
+
+if [[ -n "$bashrc_hash" ]]; then
+  now_hash="$(sha256sum "$real_home/.bashrc" | awk 'NR==1 {print $1}')"
+  if [[ "$now_hash" != "$bashrc_hash" ]]; then
+    echo "real bashrc changed"
+    exit 1
+  fi
+elif [[ -e "$real_home/.bashrc" ]]; then
+  echo "real bashrc was created"
+  exit 1
+fi
+if [[ -e "$HOME/.bashrc" ]]; then
+  echo "temporary bashrc was created"
+  exit 1
 fi
 
 echo "check ok"

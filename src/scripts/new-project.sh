@@ -3,7 +3,6 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
-bashrc="${HOME}/.bashrc"
 module_re='^[a-z][a-z0-9-]{0,24}$'
 skip='^(requests|configs|agents|modules|formats|rules|scripts|\.git)(/|$)'
 
@@ -12,6 +11,7 @@ command -v git >/dev/null 2>&1 || missing+=(git)
 command -v sqlite3 >/dev/null 2>&1 || missing+=(sqlite3)
 command -v rg >/dev/null 2>&1 || missing+=(rg)
 command -v python3 >/dev/null 2>&1 || missing+=(python3)
+command -v gh >/dev/null 2>&1 || missing+=(gh)
 if ((${#missing[@]})); then
   echo "Missing: ${missing[*]}. Run scripts/install.sh first."
   exit 1
@@ -39,14 +39,34 @@ if [[ "$dest" == "$root" ]]; then
   exit 1
 fi
 
-fn="herdr-$name"
+login="$(gh api user --jq .login)" || exit 1
+if [[ -z "$login" ]]; then
+  exit 1
+fi
+
+if view_out="$(gh repo view "$login/$name" --json name 2>&1)"; then
+  repo_exists=1
+elif [[ "$view_out" == *"Could not resolve"* ]]; then
+  repo_exists=0
+else
+  exit 1
+fi
+
 adopt=0
+existed=0
 if [[ -d "$dest" ]]; then
   echo "Existing project: $dest"
   adopt=1
+  existed=1
 else
   echo "Creating: $dest"
-  mkdir -p "$dest"
+  mkdir -p "$root/projects"
+  if [[ "$repo_exists" -eq 1 ]]; then
+    gh repo clone "$login/$name" "$dest"
+    adopt=1
+  else
+    (cd "$root/projects" && gh repo create "$name" --private --clone)
+  fi
 fi
 
 mkdir -p "$dest"/{requests,configs/sources,agents/closed,modules,src,formats,rules}
@@ -97,6 +117,26 @@ if [[ ! -d "$dest/.git" ]]; then
   git -C "$dest" init -b main
 else
   echo "git kept"
+fi
+
+if [[ "$existed" -eq 1 ]]; then
+  origin_exists=0
+  if git -C "$dest" remote get-url origin >/dev/null 2>&1; then
+    origin_exists=1
+  fi
+  if [[ "$repo_exists" -eq 0 ]]; then
+    if [[ "$origin_exists" -eq 0 ]]; then
+      gh repo create "$name" --private --source "$dest" --remote origin
+    else
+      gh repo create "$name" --private --source "$dest"
+    fi
+  elif [[ "$origin_exists" -eq 0 ]]; then
+    url="$(gh repo view "$login/$name" --json url --jq .url)" || exit 1
+    if [[ -z "$url" ]]; then
+      exit 1
+    fi
+    git -C "$dest" remote add origin "${url}.git"
+  fi
 fi
 
 add_glob() {
@@ -243,69 +283,6 @@ EOF
   echo "Adopted. Modules written only where missing."
 fi
 
-begin="# herdr-grok-base:${name}"
-end="# herdr-grok-base:${name}:end"
-dest_q="$(printf '%q' "$dest")"
-touch "$bashrc"
-if grep -qF "$begin" "$bashrc" && grep -qF "cd ${dest_q} " "$bashrc"; then
-  echo "command $fn already in bashrc"
-else
-  existed=0
-  if grep -qF "$begin" "$bashrc"; then
-    existed=1
-  fi
-  block_file="$(mktemp)"
-  {
-    printf '%s\n' "$begin"
-    printf '%s() {\n' "$fn"
-    printf '  cd %s || return 1\n' "$dest_q"
-    printf '  exec herdr\n'
-    printf '}\n'
-    printf '%s\n' "$end"
-  } > "$block_file"
-  tmp_bashrc="$(mktemp)"
-  has_end=0
-  if grep -qF "$end" "$bashrc"; then
-    has_end=1
-  fi
-  awk -v begin="$begin" -v end="$end" -v blockfile="$block_file" -v has_end="$has_end" '
-    function emit() {
-      while ((getline line < blockfile) > 0) print line
-      close(blockfile)
-    }
-    $0 == begin && !skipping {
-      seen = 1
-      emit()
-      skipping = 1
-      next
-    }
-    skipping {
-      if (has_end == "1") {
-        if ($0 == end) skipping = 0
-      } else if ($0 ~ /^}$/) {
-        skipping = 0
-      }
-      next
-    }
-    $0 == end && seen { next }
-    { print }
-    END {
-      if (!seen) {
-        print ""
-        emit()
-      }
-    }
-  ' "$bashrc" > "$tmp_bashrc"
-  cat "$tmp_bashrc" > "$bashrc"
-  rm -f "$tmp_bashrc" "$block_file"
-  if [[ "$existed" -eq 1 ]]; then
-    echo "command $fn updated"
-  else
-    echo "command $fn added"
-  fi
-fi
-
-echo
-echo "Launch:"
-echo "  source ~/.bashrc && $fn"
-echo "Directory: $dest"
+echo "Ready:"
+echo "  $dest"
+echo "Repository: $login/$name"
