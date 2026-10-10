@@ -67,6 +67,13 @@ require_text formats/task.md 'herdr agent prompt <name> <text> --wait --until id
 require_text formats/agent.md 'workspace: <result.workspace.workspace_id>'
 require_text formats/symbols.md 'ext: vue'
 require_text formats/symbols.md 'lang: script'
+require_text formats/symbols.md 'lang: bash'
+require_text formats/symbols.md 'function_definition'
+require_text AGENTS.md 'Class of the message.'
+require_text AGENTS.md 'git: nested'
+require_text AGENTS.md 'publish:'
+require_text formats/output.md 'Prose above the block is ignored.'
+require_text formats/module.md 'git: parent'
 
 if grep -R -n --exclude-dir=.git --exclude=check.sh 'worktree remove --label' AGENTS.md formats README.md scripts >/dev/null; then
   echo "Stale --label removal remains."
@@ -150,6 +157,7 @@ PY
 work="$(mktemp -d)"
 real_home="$HOME"
 real_git="$(command -v git)"
+real_sg="$(command -v ast-grep)"
 bashrc_hash=""
 if [[ -f "$real_home/.bashrc" ]]; then
   bashrc_hash="$(sha256sum "$real_home/.bashrc" | awk 'NR==1 {print $1}')"
@@ -245,6 +253,13 @@ fi
 exit 1
 EOF
 chmod 755 "$HOME/.local/bin/gh"
+cat > "$HOME/.local/bin/ast-grep" << EOF
+#!/bin/bash
+printf '%q\n' "\$@" >> "\$HOME/sg.log"
+printf '\n' >> "\$HOME/sg.log"
+exec $(printf '%q' "$real_sg") "\$@"
+EOF
+chmod 755 "$HOME/.local/bin/ast-grep"
 export PATH="$HOME/.local/bin:${PATH}"
 mkdir -p "$HOME"
 server_pid=""
@@ -434,6 +449,12 @@ if grep -E 'node_modules|(^|[[:space:]])dist/' <<<"$map"; then
 fi
 grep -qF 'src/web/**' "$adopt/modules/web/MODULE.md"
 grep -qF 'src/pkg/**' "$adopt/modules/pkg/MODULE.md"
+grep -qxF 'git: parent' "$adopt/modules/web/MODULE.md"
+grep -qxF 'laws: []' "$adopt/modules/web/MODULE.md"
+grep -qxF 'imports: []' "$adopt/modules/web/MODULE.md"
+grep -qxF 'publish:' "$adopt/modules/web/MODULE.md"
+grep -qxF 'check:' "$adopt/modules/web/MODULE.md"
+grep -qxF 'split:' "$adopt/modules/web/MODULE.md"
 [[ -f "$adopt/scripts/index-symbols.py" ]]
 symbol="$(sqlite3 "$adopt/registry.sqlite" "SELECT name || ' ' || kind || ' ' || line FROM symbols WHERE path='src/web/app.ts' ORDER BY name;")"
 grep -qx 'add function 1' <<<"$symbol"
@@ -466,6 +487,81 @@ run_new tracked "$tracked" >/dev/null
 [[ ! -e "$tracked/TRACKED" ]]
 [[ "$(cat "$tracked/src/TRACKED")" == "tracked-body" ]]
 grep -q 'TRACKED -> src/TRACKED' <<<"$(git -C "$tracked" status --porcelain)"
+
+nest="$work/nest"
+mkdir -p "$nest/vendor" "$nest/shared"
+printf 'echo vendor\n' > "$nest/vendor/tool.sh"
+printf 'shared\n' > "$nest/shared/lib.txt"
+ln -s ../shared "$nest/vendor/shared"
+ln -s shared "$nest/alias"
+printf 'note\n' > "$nest/NOTE"
+git -C "$nest" init -b main >/dev/null
+git -C "$nest/vendor" init -b main >/dev/null
+git -C "$nest/vendor" -c user.email=smoke@example.com -c user.name=smoke add tool.sh
+git -C "$nest/vendor" -c user.email=smoke@example.com -c user.name=smoke commit -m init >/dev/null
+git -C "$nest" -c user.email=smoke@example.com -c user.name=smoke add NOTE shared
+git -C "$nest" -c user.email=smoke@example.com -c user.name=smoke commit -m init >/dev/null
+nest_out="$(run_new nestbox "$nest")"
+[[ -d "$nest/vendor/.git" ]]
+[[ ! -e "$nest/src/vendor" ]]
+[[ -L "$nest/vendor/shared" ]]
+[[ "$(readlink "$nest/vendor/shared")" == "../shared" ]]
+[[ -L "$nest/alias" ]]
+[[ "$(readlink "$nest/alias")" == "shared" ]]
+[[ "$(cat "$nest/src/NOTE")" == "note" ]]
+[[ ! -e "$nest/NOTE" ]]
+grep -q 'nested git: vendor' <<<"$nest_out"
+grep -q 'left link: alias' <<<"$nest_out"
+grep -qxF 'git: nested' "$nest/modules/vendor/MODULE.md"
+grep -qxF '/vendor/' "$nest/.gitignore"
+grep -qxF 'git: parent' "$nest/modules/core/MODULE.md"
+grep -qxF 'laws: []' "$nest/modules/core/MODULE.md"
+if sqlite3 "$nest/registry.sqlite" "SELECT path FROM files WHERE path LIKE 'vendor/%';" | grep -q .; then
+  echo "nested repo was indexed in the parent"
+  exit 1
+fi
+
+modes="$work/modes"
+mkdir -p "$modes/src"
+git -C "$modes" init -b main >/dev/null
+printf 'body\n' > "$modes/src/a.txt"
+git -C "$modes" -c user.email=smoke@example.com -c user.name=smoke add src/a.txt
+git -C "$modes" -c user.email=smoke@example.com -c user.name=smoke commit -m init >/dev/null
+git -C "$modes" update-index --chmod=+x src/a.txt
+run_new modest "$modes" >/dev/null
+[[ "$(cat "$modes/src/a.txt")" == "body" ]]
+mode_diff="$(git -C "$modes" diff --numstat; git -C "$modes" diff --cached --numstat)"
+if [[ -n "$mode_diff" ]]; then
+  [[ "$(git -C "$modes" config --get core.fileMode)" == "false" ]]
+fi
+
+idx="$work/idx"
+mkdir -p "$idx/formats" "$idx/src/tool/node_modules"
+cp "$root/formats/symbols.md" "$idx/formats/symbols.md"
+cp "$root/formats/registry.sql" "$idx/formats/registry.sql"
+sqlite3 "$idx/registry.sqlite" < "$idx/formats/registry.sql"
+printf 'function foo() {\n  echo 1\n}\nbar() {\n  echo 2\n}\n' > "$idx/src/tool/run.sh"
+printf 'function sneak() {\n  echo 3\n}\n' > "$idx/src/tool/node_modules/inside.sh"
+python3 - "$idx/src/tool/big.sh" << 'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+path.write_bytes(b"function huge() {\n  echo 4\n}\n" + b"x" * 1048577)
+PY
+sqlite3 "$idx/registry.sqlite" << 'SQL'
+INSERT INTO files(path, module, summary) VALUES ('src/tool/run.sh', 'tool', '');
+INSERT INTO files(path, module, summary) VALUES ('src/tool/big.sh', 'tool', '');
+SQL
+: >"$HOME/sg.log"
+(cd "$idx" && python3 "$root/scripts/index-symbols.py" tool)
+foo="$(sqlite3 "$idx/registry.sqlite" "SELECT name FROM symbols WHERE path='src/tool/run.sh' ORDER BY name;")"
+[[ "$foo" == $'bar\nfoo' ]]
+[[ -z "$(sqlite3 "$idx/registry.sqlite" "SELECT name FROM symbols WHERE name='huge' OR name='sneak';")" ]]
+[[ -z "$(sqlite3 "$idx/registry.sqlite" "SELECT summary FROM files WHERE path='src/tool/big.sh';")" ]]
+if grep -qxF "$idx/src/tool" "$HOME/sg.log" || grep -q 'node_modules' "$HOME/sg.log"; then
+  echo "ast-grep scanned a directory or node_modules"
+  exit 1
+fi
+grep -qxF "$idx/src/tool/run.sh" "$HOME/sg.log"
 
 log_before="$(wc -l <"$HOME/gh.log")"
 if run_new refused "$root"; then
