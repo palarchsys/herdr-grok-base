@@ -27,7 +27,7 @@ Export change = depth 2 to the owner. No neighbor edit.
 Default: one agent writes `modules/<module>/PLAN.md`, then the code, in one worktree.
 `split: plan` keeps a plan agent, then an impl agent. Absent means one agent.
 `laws:` paths are pasted in full in the first prompt. They do not count toward the 3 excerpts. Empty means the prompt does not grow.
-`imports:` module ids. Each is merged before this module starts. The prompt receives file names only. Empty, with disjoint owns, means the agents start together.
+`imports:` module ids. Each is merged before this module starts. The prompt receives at most 50 file names: paths named in the task, or the first 50 sorted, then `<n> more`. Empty, with disjoint owns, means the agents start together.
 `check:` command run by the orchestrator after the commit, before the merge. Empty means no command.
 `publish:` command for a later `git` message. Empty means `git add` the owns, `git commit` with the given comment, `git push` in the project repository. Set means that command receives the comment.
 `git: parent` commits and merges in the project repository.
