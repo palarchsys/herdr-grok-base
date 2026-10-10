@@ -1,0 +1,10 @@
+name: scripts-plan
+module: scripts
+config: plan-sync
+llm: grok-build
+workspace: wQ
+tab: wQ:t1
+pane: wQ:p1
+worktree: /home/palarchsys/.herdr/worktrees/herdr-grok-base/mod-scripts-plan
+start: 1791624897
+end: 1791625041
