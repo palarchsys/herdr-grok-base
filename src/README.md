@@ -59,12 +59,23 @@ La base n'est pas créée ici. Elle l'est au lancement, depuis `formats/registry
 
 ```bash
 bash scripts/new-project.sh
-source ~/.bashrc && herdr-<name>
 ```
 
-Le script ne remplace aucun fichier déjà présent. Si le dossier existe, ou si un chemin existant est donné, le code est indexé dans `registry.sqlite` et des `MODULE.md` manquants sont ajoutés. Rien n'est déplacé.
+`gh` est requis à côté de `git`, `sqlite3`, `rg` et `python3`. Le login vient de `gh api user --jq .login`. Un échec arrête le script.
 
-`herdr-<name>` ouvre Herdr dans ce dossier.
+Le dépôt existe lorsque `gh repo view <login>/<name> --json name` se termine par 0. Il est absent lorsque cette commande échoue et que la sortie contient `Could not resolve`. Tout autre échec arrête le script.
+
+La question du nom et la question du dossier existant restent. La racine du protocole quitte avec le code 1 avant tout clone ou toute création de dépôt.
+
+Si `projects/<name>` est absent et que le dépôt existe : `gh repo clone <login>/<name>` dans ce dossier, puis les fichiers manquants, puis l'index. Un fichier déjà là n'est pas remplacé.
+
+Si `projects/<name>` est absent et que le dépôt est absent : `mkdir` de `projects`, puis `(cd projects && gh repo create <name> --private --clone)`, puis les fichiers manquants. Ce clone vide n'est pas indexé.
+
+Si le dossier existe déjà : pas de clone. Les fichiers manquants sont ajoutés comme avant, puis l'index. Dépôt absent et `origin` absent : `gh repo create <name> --private --source <dest> --remote origin`. `origin` déjà présent : la même commande sans `--remote`. Jamais `--push`, jamais `--public`. Dépôt présent et `origin` absent : l'URL vient de `gh repo view <login>/<name> --json url --jq .url`, puis `git remote add origin <url>.git`. `origin` présent : on le laisse. `git init` seulement si `.git` manque.
+
+Le script se termine par `Ready:`, la destination, et `Repository: <login>/<name>`.
+
+Le script ne remplace aucun fichier déjà présent. Si le dossier existe, ou si un chemin existant est donné, le code est indexé dans `registry.sqlite` et des `MODULE.md` manquants sont ajoutés. Rien n'est déplacé.
 
 Un projet déjà créé garde son `AGENTS.md` et ses `formats/`. La racine de ce dépôt, ouverte dans Herdr, répond `protocol repo` et n'écrit rien.
 
