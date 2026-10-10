@@ -1,37 +1,31 @@
-# scripts origin pull
+# scripts project report
 
-## Pull
+## Report
 
-`scripts/update.sh`. Root is the parent of `scripts/`.
+`scripts/update.sh`. After a successful pull, each directory in `projects/*`. `<name>` is the basename.
 
-- No `origin`: print `No origin.` and exit 1. This stays before the pull.
-- Detached HEAD: print `Detached head.` and exit 1 before the pull.
-- Pull is `git pull --ff-only origin <branch>`. `<branch>` is the current branch. Do not require an upstream. A missing upstream is not `Dirty tree.`
-- Not protocol dirt, never listed: `.Trash-1000`, `.Trash-1000/`, `.Trash-1000/*`, `.idea`, `.idea/`, `.idea/*`, `projects`, `projects/*`.
-- Pull exit 0: continue, even when another protocol path is dirty. Then the same overwrite and the same two questions.
-- Pull exit non-zero and a protocol path remains: print `Dirty tree.`, then each remaining path, one per line, exit 1. Do not refresh `projects/`. Leave file bytes as they were.
-- Pull exit non-zero and no protocol path remains: print the git error and exit 1.
-- The root `git add` skips `projects`, `.Trash-1000`, and `.idea`.
-- Do not change the questions, `new-project.sh`, `install.sh`, or `index-symbols.py`.
+- Print `<name>: updated` or `<name>: current`. Under `updated`, one relative path per line, two spaces of indent. `current` lists nothing.
+- Order, omitting a path that did not change: `AGENTS.md`, `formats/<file>` in basename order, `scripts/index-symbols.py`, `.gitignore`, `registry.sqlite`.
+- Copy `AGENTS.md`, each `formats/<file>`, and `scripts/index-symbols.py` only when missing or bytes differ. Identical bytes are not copied. Do not remove other project files.
+- Missing `registry.sqlite` is created from `formats/registry.sql` and listed. An existing database gets that schema, is not listed, and does not by itself make the project updated.
+- `.gitignore` keeps its other lines. List it only when `registry.sqlite`, `registry.sqlite-journal`, `registry.sqlite-wal`, or `registry.sqlite-shm` was missing and was appended. Do not copy another `.gitignore` over it.
+- Drop the old lines `AGENTS.md updated`, `AGENTS.md installed`, `formats updated`, `formats installed`, `index-symbols.py updated`, `index-symbols.py installed`, `database created`, and `registry.sqlite kept, schema ensured`.
+
+## Drop
+
+- Delete both questions, the readme copy, the comment prompt, `ask`, `commit_repo`, and every commit and push.
+- The script reads no stdin. It does not print `Mise a jour des readmes`, `Commit et push vers le depot`, or `Empty comment.`
+- Leave the pull, the junk exclusion, `new-project.sh`, `install.sh`, and `index-symbols.py` unchanged. Leave project `README.md` bytes unchanged.
 
 ## Tests
 
-In `check.sh`, no network:
+`check.sh`, no network. Do not feed `Oui`, `Non`, or a comment.
 
-- Missing origin still prints `No origin.`
-- A dirty tracked file and a missing remote still print `Dirty tree.`
-- No upstream, real bare origin, not behind, only `.Trash-1000/` and `.idea/`: `Non` then `Non`, exit 0, no `Dirty tree.`
-- Only `.Trash-1000/` and a missing remote: exit 1, no `Dirty tree.`
-- Dirty tracked file, origin one commit ahead on that file: exit 1, `Dirty tree.` and that path, bytes unchanged.
-- An up-to-date dirty file that has an upstream still exits 0.
-- The clean local bare pull, overwrite, readme, and commit tests stay.
+- A stale project prints `<name>: updated` and `AGENTS.md`. Its README stays. Its HEAD stays. A second run prints `<name>: current`.
+- A project whose protocol files already match prints `<name>: current` on the first run.
+- A normal update prints neither question. A dirty tree is not committed. A bad project remote does not fail the update.
+- Pull tests stay: no origin, dirty remote, trash without upstream, trash-only missing remote, detached head, blocked pull.
 
 ## README
 
-French, in `src/README.md`.
-
-- Pull is `git pull --ff-only origin` plus the current branch. No upstream is required.
-- `.Trash-1000/` and `.idea/` do not make the tree dirty and are not committed.
-- No `origin` still exits 1 and prints `No origin.`. Detached HEAD exits 1 and prints `Detached head.`.
-- Pull exit 0 continues. A failed pull with a remaining protocol path prints `Dirty tree.` and those paths. A failed pull with none prints the git error.
-- Paths under `projects/` still do not make the root dirty. The script still clones nothing and moves no foreign file.
+French, in `src/README.md`. Delete the two questions, the readme copy, and the commit. Document `<name>: updated` and `<name>: current`.
