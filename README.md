@@ -59,14 +59,47 @@ La base n'est pas créée ici. Elle l'est au lancement, depuis `formats/registry
 
 ```bash
 bash scripts/new-project.sh
-source ~/.bashrc && herdr-<name>
 ```
 
-Le script ne remplace aucun fichier déjà présent. Si le dossier existe, ou si un chemin existant est donné, le code est indexé dans `registry.sqlite` et des `MODULE.md` manquants sont ajoutés. Rien n'est déplacé.
+`gh` est requis à côté de `git`, `sqlite3`, `rg` et `python3`. Le login vient de `gh api user --jq .login`. Un échec arrête le script.
 
-`herdr-<name>` ouvre Herdr dans ce dossier.
+Le dépôt existe lorsque `gh repo view <login>/<name> --json name` se termine par 0. Il est absent lorsque cette commande échoue et que la sortie contient `Could not resolve`. Tout autre échec arrête le script.
 
-Un projet déjà créé garde son `AGENTS.md` et ses `formats/`. La racine de ce dépôt, ouverte dans Herdr, répond `protocol repo` et n'écrit rien.
+La question du nom et la question du dossier existant restent. La racine du protocole quitte avec le code 1 avant tout clone ou toute création de dépôt.
+
+Si `projects/<name>` est absent et que le dépôt existe : `gh repo clone <login>/<name>` dans ce dossier. `AGENTS.md`, chaque fichier de `formats/` et `scripts/index-symbols.py` sont écrits depuis la racine du protocole, même s'ils existent déjà. Les autres entrées de la racine vont dans `src/<name>`. Les autres fichiers de `scripts/`, sauf `index-symbols.py`, vont dans `src/scripts/<name>`. Puis l'index.
+
+Si `projects/<name>` est absent et que le dépôt est absent : `mkdir` de `projects`, puis `(cd projects && gh repo create <name> --private --clone)`, puis les mêmes fichiers du protocole. Ce clone vide n'a rien à déplacer et n'est pas indexé.
+
+Si le dossier existe déjà : pas de clone. Les mêmes fichiers du protocole sont écrits, les entrées étrangères sont déplacées, puis l'index. Dépôt absent et `origin` absent : `gh repo create <name> --private --source <dest> --remote origin`. `origin` déjà présent : la même commande sans `--remote`. Jamais `--push`, jamais `--public`. Dépôt présent et `origin` absent : l'URL vient de `gh repo view <login>/<name> --json url --jq .url`, puis `git remote add origin <url>.git`. `origin` présent : on le laisse. `git init` seulement si `.git` manque.
+
+Ne bougent jamais : `.git`, `.gitignore`, `AGENTS.md`, `formats`, `rules`, `requests`, `configs`, `agents`, `modules`, `src`, `scripts`, `registry.sqlite`, `registry.sqlite-journal`, `registry.sqlite-wal`, `registry.sqlite-shm`. Si `src/<name>` ou `src/scripts/<name>` existe déjà, le script affiche `left in place: <name>` et passe. Un chemin suivi par git est déplacé avec `git mv`. Sinon `mv`. Le déplacement a lieu après l'échafaudage et avant l'index. La racine du protocole quitte avec le code 1 avant `gh` : rien n'y est déplacé.
+
+Un fichier de protocole déjà présent donne `updated`. Un fichier absent donne `installed`. Les textes sont `AGENTS.md installed`, `AGENTS.md updated`, `formats installed`, `formats updated`, `index-symbols.py installed`, `index-symbols.py updated`. `formats updated` dès qu'un fichier de `formats/` était déjà là. Les lignes manquantes `registry.sqlite`, `registry.sqlite-journal`, `registry.sqlite-wal` et `registry.sqlite-shm` sont ajoutées à `.gitignore`. Le reste de ce fichier reste. `.gitignore` n'est pas déplacé.
+
+Le script se termine par `Ready:`, la destination, et `Repository: <login>/<name>`.
+
+Si le dossier existe, ou si un chemin existant est donné, les fichiers sont indexés dans `registry.sqlite` et des `MODULE.md` manquants sont ajoutés.
+
+La racine de ce dépôt, ouverte dans Herdr, répond `protocol repo` et n'écrit rien.
+
+## Mise à jour
+
+```bash
+bash scripts/update.sh
+```
+
+`scripts/update.sh` prend pour racine le parent de `scripts/`. Il lance `git pull --ff-only`. Sans `origin`, ou si l'arbre est sale, il quitte avec le code 1 et dit pourquoi. Les fichiers sous `projects/` ne rendent pas la racine sale : ce sont les projets. Il ne clone rien et ne déplace aucun fichier étranger.
+
+Chaque dossier de `projects/*` reçoit la même écriture : `AGENTS.md`, les fichiers de `formats/`, `scripts/index-symbols.py`, le schéma `formats/registry.sql`, et les lignes manquantes de `.gitignore`.
+
+Le script pose ensuite deux questions. Il répète chacune jusqu'à `Oui`, `oui`, `O`, `o`, `Non`, `non`, `N` ou `n`.
+
+`Mise a jour des readmes ? Oui/Non :` — Oui copie le `README.md` de la racine sur chaque `projects/<name>/README.md`. Non passe à la question suivante.
+
+`Commit et push vers le depot ? Oui/Non :` — Oui demande `Commentaire : `. Un commentaire vide quitte avec le code 1. Pour la racine et chaque `projects/*` qui contient `.git`, un arbre sale reçoit un commit avec ce message, puis `git push`. La racine fait `git add -A` sans `projects/`. Chaque projet fait `git add -A`. Un dépôt propre est ignoré. Un push qui échoue quitte avec le code 1. Non quitte avec le code 0.
+
+`scripts/check.sh` ferme, avant de supprimer son dossier temporaire, chaque workspace Herdr dont `checkout_path` ou `repo_root` est dans ce dossier. Il ne ferme aucun autre workspace. Le test smoke retire toujours le worktree lié avec `herdr worktree remove`, puis vérifie qu'aucun workspace du dossier temporaire ne reste.
 
 Règles du projet : `projects/<name>/rules/AGENT-<n>-<NAME>.md`. Lues après `AGENTS.md`, par numéro. `AGENTS.md` ne se modifie pas. Dossier vide = pas de règle en plus.
 

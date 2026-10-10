@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# Create or adopt a project. Never overwrite an existing file. Never move source.
+# Create or adopt a project. Overwrite protocol files. Move other root entries into src/.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
-bashrc="${HOME}/.bashrc"
 module_re='^[a-z][a-z0-9-]{0,24}$'
 skip='^(requests|configs|agents|modules|formats|rules|scripts|\.git)(/|$)'
 
@@ -12,6 +11,7 @@ command -v git >/dev/null 2>&1 || missing+=(git)
 command -v sqlite3 >/dev/null 2>&1 || missing+=(sqlite3)
 command -v rg >/dev/null 2>&1 || missing+=(rg)
 command -v python3 >/dev/null 2>&1 || missing+=(python3)
+command -v gh >/dev/null 2>&1 || missing+=(gh)
 if ((${#missing[@]})); then
   echo "Missing: ${missing[*]}. Run scripts/install.sh first."
   exit 1
@@ -39,41 +39,60 @@ if [[ "$dest" == "$root" ]]; then
   exit 1
 fi
 
-fn="herdr-$name"
+login="$(gh api user --jq .login)" || exit 1
+if [[ -z "$login" ]]; then
+  exit 1
+fi
+
+if view_out="$(gh repo view "$login/$name" --json name 2>&1)"; then
+  repo_exists=1
+elif [[ "$view_out" == *"Could not resolve"* ]]; then
+  repo_exists=0
+else
+  exit 1
+fi
+
 adopt=0
+existed=0
 if [[ -d "$dest" ]]; then
   echo "Existing project: $dest"
   adopt=1
+  existed=1
 else
   echo "Creating: $dest"
-  mkdir -p "$dest"
+  mkdir -p "$root/projects"
+  if [[ "$repo_exists" -eq 1 ]]; then
+    gh repo clone "$login/$name" "$dest"
+    adopt=1
+  else
+    (cd "$root/projects" && gh repo create "$name" --private --clone)
+  fi
 fi
 
-mkdir -p "$dest"/{requests,configs/sources,agents/closed,modules,src,formats,rules}
+mkdir -p "$dest"/{requests,configs/sources,agents/closed,modules,src,formats,rules,scripts}
 
-if [[ ! -f "$dest/AGENTS.md" ]]; then
+if [[ -f "$dest/AGENTS.md" ]]; then
   cp "$root/AGENTS.md" "$dest/AGENTS.md"
+  echo "AGENTS.md updated"
 else
-  echo "AGENTS.md kept"
+  cp "$root/AGENTS.md" "$dest/AGENTS.md"
+  echo "AGENTS.md installed"
 fi
 
-copied=0
-kept=0
+formats_existed=0
 shopt -s nullglob
 for srcf in "$root/formats"/*; do
   base="$(basename "$srcf")"
   if [[ -e "$dest/formats/$base" ]]; then
-    kept=1
-  else
-    cp -R "$srcf" "$dest/formats/$base"
-    copied=1
+    formats_existed=1
   fi
+  cp -f "$srcf" "$dest/formats/$base"
 done
 shopt -u nullglob
-if [[ "$copied" -eq 0 && "$kept" -eq 1 ]]; then
-  echo "formats/ kept"
-elif [[ "$copied" -eq 1 && "$kept" -eq 1 ]]; then
-  echo "formats/ missing files copied"
+if [[ "$formats_existed" -eq 1 ]]; then
+  echo "formats updated"
+else
+  echo "formats installed"
 fi
 
 if [[ ! -f "$dest/registry.sqlite" ]]; then
@@ -84,19 +103,56 @@ else
   echo "registry.sqlite kept, schema ensured"
 fi
 
-if [[ ! -f "$dest/.gitignore" ]]; then
-  cat > "$dest/.gitignore" << 'EOF'
-registry.sqlite
-registry.sqlite-journal
-registry.sqlite-wal
-registry.sqlite-shm
-EOF
-fi
+append_ignore() {
+  local file="$1" line
+  local lines=(
+    registry.sqlite
+    registry.sqlite-journal
+    registry.sqlite-wal
+    registry.sqlite-shm
+  )
+  if [[ ! -f "$file" ]]; then
+    printf '%s\n' "${lines[@]}" > "$file"
+    return 0
+  fi
+  for line in "${lines[@]}"; do
+    if grep -qxF "$line" "$file"; then
+      continue
+    fi
+    if [[ -s "$file" ]]; then
+      printf '\n%s\n' "$line" >> "$file"
+    else
+      printf '%s\n' "$line" >> "$file"
+    fi
+  done
+}
+
+append_ignore "$dest/.gitignore"
 
 if [[ ! -d "$dest/.git" ]]; then
   git -C "$dest" init -b main
 else
   echo "git kept"
+fi
+
+if [[ "$existed" -eq 1 ]]; then
+  origin_exists=0
+  if git -C "$dest" remote get-url origin >/dev/null 2>&1; then
+    origin_exists=1
+  fi
+  if [[ "$repo_exists" -eq 0 ]]; then
+    if [[ "$origin_exists" -eq 0 ]]; then
+      gh repo create "$name" --private --source "$dest" --remote origin
+    else
+      gh repo create "$name" --private --source "$dest"
+    fi
+  elif [[ "$origin_exists" -eq 0 ]]; then
+    url="$(gh repo view "$login/$name" --json url --jq .url)" || exit 1
+    if [[ -z "$url" ]]; then
+      exit 1
+    fi
+    git -C "$dest" remote add origin "${url}.git"
+  fi
 fi
 
 add_glob() {
@@ -146,15 +202,63 @@ classify() {
   glob="$rel"
 }
 
-mkdir -p "$dest/scripts"
-if [[ ! -f "$dest/scripts/index-symbols.py" ]]; then
-  cp "$root/scripts/index-symbols.py" "$dest/scripts/index-symbols.py"
+if [[ -f "$dest/scripts/index-symbols.py" ]]; then
+  cp -f "$root/scripts/index-symbols.py" "$dest/scripts/index-symbols.py"
+  echo "index-symbols.py updated"
 else
-  echo "scripts/index-symbols.py kept"
+  cp "$root/scripts/index-symbols.py" "$dest/scripts/index-symbols.py"
+  echo "index-symbols.py installed"
 fi
 
+is_tracked() {
+  git -C "$dest" ls-files --error-unmatch -- "$1" >/dev/null 2>&1
+}
+
+move_entry() {
+  local from_rel="$1" to_rel="$2" name="$3"
+  if [[ -e "$dest/$to_rel" ]]; then
+    echo "left in place: $name"
+    return 0
+  fi
+  mkdir -p "$(dirname "$dest/$to_rel")"
+  if is_tracked "$from_rel"; then
+    git -C "$dest" mv -- "$from_rel" "$to_rel"
+  else
+    mv -- "$dest/$from_rel" "$dest/$to_rel"
+  fi
+}
+
+move_foreign() {
+  local entry name dotglob_was=0 nullglob_was=0
+  shopt -q dotglob && dotglob_was=1
+  shopt -q nullglob && nullglob_was=1
+  shopt -s nullglob dotglob
+  for entry in "$dest"/*; do
+    name="$(basename "$entry")"
+    case "$name" in
+      .git|.gitignore|AGENTS.md|formats|rules|requests|configs|agents|modules|src|scripts|registry.sqlite|registry.sqlite-journal|registry.sqlite-wal|registry.sqlite-shm)
+        continue
+        ;;
+    esac
+    move_entry "$name" "src/$name" "$name"
+  done
+  for entry in "$dest/scripts"/*; do
+    name="$(basename "$entry")"
+    [[ "$name" == "index-symbols.py" ]] && continue
+    move_entry "scripts/$name" "src/scripts/$name" "$name"
+  done
+  if [[ "$dotglob_was" -eq 0 ]]; then
+    shopt -u dotglob
+  fi
+  if [[ "$nullglob_was" -eq 0 ]]; then
+    shopt -u nullglob
+  fi
+}
+
+move_foreign
+
 if [[ "$adopt" -eq 1 ]]; then
-  echo "Indexing existing files. Source is not moved."
+  echo "Indexing existing files."
   declare -A mod_globs=()
   list="$(mktemp)"
   rg_rc=0
@@ -217,7 +321,7 @@ EOF
     done
   fi
   if [[ ! -f "$dest/requests/r-adopt-0.md" ]]; then
-    body_text='Adopted existing tree. Files indexed. Source not moved.'
+    body_text='Adopted existing tree. Files indexed. Foreign files moved into src.'
     adopt_hash="$(printf '%s' "$body_text" | sha256sum | cut -c1-12)"
     cat > "$dest/requests/r-adopt-0.md" << EOF
 id: r-adopt-0
@@ -243,69 +347,6 @@ EOF
   echo "Adopted. Modules written only where missing."
 fi
 
-begin="# herdr-grok-base:${name}"
-end="# herdr-grok-base:${name}:end"
-dest_q="$(printf '%q' "$dest")"
-touch "$bashrc"
-if grep -qF "$begin" "$bashrc" && grep -qF "cd ${dest_q} " "$bashrc"; then
-  echo "command $fn already in bashrc"
-else
-  existed=0
-  if grep -qF "$begin" "$bashrc"; then
-    existed=1
-  fi
-  block_file="$(mktemp)"
-  {
-    printf '%s\n' "$begin"
-    printf '%s() {\n' "$fn"
-    printf '  cd %s || return 1\n' "$dest_q"
-    printf '  exec herdr\n'
-    printf '}\n'
-    printf '%s\n' "$end"
-  } > "$block_file"
-  tmp_bashrc="$(mktemp)"
-  has_end=0
-  if grep -qF "$end" "$bashrc"; then
-    has_end=1
-  fi
-  awk -v begin="$begin" -v end="$end" -v blockfile="$block_file" -v has_end="$has_end" '
-    function emit() {
-      while ((getline line < blockfile) > 0) print line
-      close(blockfile)
-    }
-    $0 == begin && !skipping {
-      seen = 1
-      emit()
-      skipping = 1
-      next
-    }
-    skipping {
-      if (has_end == "1") {
-        if ($0 == end) skipping = 0
-      } else if ($0 ~ /^}$/) {
-        skipping = 0
-      }
-      next
-    }
-    $0 == end && seen { next }
-    { print }
-    END {
-      if (!seen) {
-        print ""
-        emit()
-      }
-    }
-  ' "$bashrc" > "$tmp_bashrc"
-  cat "$tmp_bashrc" > "$bashrc"
-  rm -f "$tmp_bashrc" "$block_file"
-  if [[ "$existed" -eq 1 ]]; then
-    echo "command $fn updated"
-  else
-    echo "command $fn added"
-  fi
-fi
-
-echo
-echo "Launch:"
-echo "  source ~/.bashrc && $fn"
-echo "Directory: $dest"
+echo "Ready:"
+echo "  $dest"
+echo "Repository: $login/$name"
