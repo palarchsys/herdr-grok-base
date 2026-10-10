@@ -27,6 +27,8 @@ protocol_dirty_paths() {
     path="$(porcelain_path "$line")"
     case "$path" in
       projects|projects/*) continue ;;
+      .Trash-1000|.Trash-1000/*) continue ;;
+      .idea|.idea/*) continue ;;
     esac
     printf '%s\n' "$path"
   done < <(git -C "$root" status --porcelain)
@@ -36,7 +38,12 @@ protocol_dirty() {
   [[ -n "$(protocol_dirty_paths)" ]]
 }
 
-if ! pull_out="$(git -C "$root" pull --ff-only 2>&1)"; then
+if ! branch="$(git -C "$root" symbolic-ref --short HEAD 2>/dev/null)" || [[ -z "$branch" ]]; then
+  echo "Detached head."
+  exit 1
+fi
+
+if ! pull_out="$(git -C "$root" pull --ff-only origin "$branch" 2>&1)"; then
   if protocol_dirty; then
     echo "Dirty tree."
     protocol_dirty_paths
@@ -162,7 +169,7 @@ commit_repo() {
     if ! protocol_dirty; then
       return 0
     fi
-    git -C "$repo" add -A -- . ':!projects'
+    git -C "$repo" add -A -- . ':!projects' ':!.Trash-1000' ':!.idea'
   else
     if [[ -z "$(git -C "$repo" status --porcelain)" ]]; then
       return 0
