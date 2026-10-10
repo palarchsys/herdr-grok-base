@@ -51,6 +51,12 @@ require_text AGENTS.md 'wait -n'
 require_text formats/task.md 'Do not chain'
 require_text formats/module.md 'Disjoint owns inside one concern are several modules and run together.'
 require_text README.md 'Le temps est celui du module le plus lent.'
+require_text README.md '<name>: updated'
+require_text README.md '<name>: current'
+if grep -q 'Mise a jour des readmes' README.md || grep -q 'Commit et push vers le depot' README.md; then
+  echo "README still documents the two questions"
+  exit 1
+fi
 require_text AGENTS.md 'herdr worktree remove --workspace <workspace> --force'
 require_text AGENTS.md 'Do not close the orchestrator tab.'
 require_text AGENTS.md 'git worktree remove'
@@ -484,7 +490,7 @@ no_origin="$work/no-origin"
 mkdir -p "$no_origin/scripts"
 cp "$root/scripts/update.sh" "$no_origin/scripts/update.sh"
 git -C "$no_origin" init -b main >/dev/null
-if no_out="$(printf 'Non\n' | bash "$no_origin/scripts/update.sh")"; then
+if no_out="$(bash "$no_origin/scripts/update.sh" </dev/null)"; then
   echo "missing origin was accepted"
   exit 1
 fi
@@ -497,7 +503,7 @@ git -C "$dirty" init -b main >/dev/null
 git -C "$dirty" remote add origin "$work/unused.git"
 sync_id "$dirty"
 printf 'x\n' > "$dirty/DIRTY"
-if dirty_out="$(printf 'Non\n' | bash "$dirty/scripts/update.sh")"; then
+if dirty_out="$(bash "$dirty/scripts/update.sh" </dev/null)"; then
   echo "dirty tree was accepted"
   exit 1
 fi
@@ -516,7 +522,7 @@ git -C "$same" add BASE scripts/update.sh
 git -C "$same" commit -m init >/dev/null
 git -C "$same" push -u origin main >/dev/null
 printf 'dirty\n' > "$same/DIRTY"
-if ! same_out="$(printf 'Non\nNon\n' | bash "$same/scripts/update.sh")"; then
+if ! same_out="$(bash "$same/scripts/update.sh" </dev/null)"; then
   echo "up-to-date dirty tree was rejected"
   printf '%s\n' "$same_out"
   exit 1
@@ -547,7 +553,7 @@ if git -C "$noise" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null
 fi
 printf 'trash\n' > "$noise/.Trash-1000/files"
 printf 'idea\n' > "$noise/.idea/workspace.xml"
-if ! noise_out="$(printf 'Non\nNon\n' | bash "$noise/scripts/update.sh")"; then
+if ! noise_out="$(bash "$noise/scripts/update.sh" </dev/null)"; then
   echo "trash and idea without upstream were rejected"
   printf '%s\n' "$noise_out"
   exit 1
@@ -559,13 +565,17 @@ if grep -q 'Dirty tree.' <<<"$noise_out"; then
 fi
 printf 'keep\n' > "$noise/KEEP"
 git -C "$noise" push -u origin main >/dev/null
-if ! keep_out="$(printf 'Non\nOui\nkeep-note\n' | bash "$noise/scripts/update.sh")"; then
-  echo "commit with trash and idea was rejected"
+noise_rev="$(git -C "$noise" rev-parse HEAD)"
+if ! keep_out="$(bash "$noise/scripts/update.sh" </dev/null)"; then
+  echo "dirty tree update was rejected"
   printf '%s\n' "$keep_out"
   exit 1
 fi
-[[ "$(git -C "$noise" log -1 --format=%s)" == "keep-note" ]]
-git -C "$noise" ls-tree -r --name-only HEAD | grep -qxF 'KEEP'
+[[ "$(git -C "$noise" rev-parse HEAD)" == "$noise_rev" ]]
+if git -C "$noise" ls-tree -r --name-only HEAD | grep -qxF 'KEEP'; then
+  echo "dirty tree was committed"
+  exit 1
+fi
 keep_names="$(git -C "$noise" ls-tree -r --name-only HEAD)"
 if grep -F '.Trash-1000' <<<"$keep_names" || grep -F '.idea' <<<"$keep_names"; then
   echo "trash or idea was committed"
@@ -581,7 +591,7 @@ git -C "$trash_only" add scripts/update.sh
 git -C "$trash_only" commit -m init >/dev/null
 git -C "$trash_only" remote add origin "$work/missing-trash.git"
 printf 't\n' > "$trash_only/.Trash-1000/x"
-if trash_out="$(printf 'Non\n' | bash "$trash_only/scripts/update.sh")"; then
+if trash_out="$(bash "$trash_only/scripts/update.sh" </dev/null)"; then
   echo "trash-only missing remote was accepted"
   printf '%s\n' "$trash_out"
   exit 1
@@ -635,7 +645,7 @@ git -C "$clash_other" add TRACK
 git -C "$clash_other" commit -m ahead >/dev/null
 git -C "$clash_other" push origin main >/dev/null
 printf 'local-dirty\n' > "$clash/TRACK"
-if clash_out="$(printf 'Non\nNon\n' | bash "$clash/scripts/update.sh")"; then
+if clash_out="$(bash "$clash/scripts/update.sh" </dev/null)"; then
   echo "blocked pull was accepted"
   printf '%s\n' "$clash_out"
   exit 1
@@ -701,7 +711,18 @@ git -C "$proto/projects/clean" add -A
 git -C "$proto/projects/clean" commit -m init >/dev/null
 git -C "$proto/projects/clean" push -u origin main >/dev/null
 clean_rev="$(git -C "$proto/projects/clean" rev-parse HEAD)"
-printf 'zzz\nNon\nN\n' | bash "$proto/scripts/update.sh" >/dev/null
+demo_rev="$(git -C "$proto/projects/demo" rev-parse HEAD)"
+sqlite3 "$proto/projects/clean/registry.sqlite" < "$proto/formats/registry.sql"
+if ! upd_out="$(bash "$proto/scripts/update.sh" </dev/null 2>&1)"; then
+  echo "project update failed"
+  printf '%s\n' "$upd_out"
+  exit 1
+fi
+if grep -F 'Mise a jour des readmes' <<<"$upd_out" || grep -F 'Commit et push vers le depot' <<<"$upd_out"; then
+  echo "update printed a question"
+  printf '%s\n' "$upd_out"
+  exit 1
+fi
 [[ -f "$proto/PULLED" ]]
 cmp -s "$proto/AGENTS.md" "$proto/projects/demo/AGENTS.md"
 cmp -s "$proto/formats/task.md" "$proto/projects/demo/formats/task.md"
@@ -716,20 +737,53 @@ grep -qxF 'registry.sqlite-shm' "$proto/projects/demo/.gitignore"
 [[ "$(cat "$proto/projects/demo/README.md")" == "old readme" ]]
 [[ "$(cat "$proto/projects/plain/KEEP")" == "plain" ]]
 sqlite3 "$proto/projects/demo/registry.sqlite" "SELECT count(*) FROM requests;" >/dev/null
-demo_rev="$(git -C "$proto/projects/demo" rev-parse HEAD)"
-if empty_out="$(printf 'o\nO\n\n' | bash "$proto/scripts/update.sh")"; then
-  echo "empty comment was accepted"
+demo_block="$(awk 'BEGIN{p=0} $0=="demo: updated"{p=1; next} p && /^  /{print; next} p{exit}' <<<"$upd_out")"
+expected="  AGENTS.md"
+shopt -s nullglob
+format_bases=()
+for srcf in "$proto/formats"/*; do
+  [[ -f "$srcf" ]] || continue
+  format_bases+=("$(basename "$srcf")")
+done
+shopt -u nullglob
+while IFS= read -r base; do
+  [[ -n "$base" ]] || continue
+  expected+=$'\n  formats/'"$base"
+done < <(printf '%s\n' "${format_bases[@]}" | LC_ALL=C sort)
+expected+=$'\n  scripts/index-symbols.py'
+expected+=$'\n  .gitignore'
+expected+=$'\n  registry.sqlite'
+if [[ "$demo_block" != "$expected" ]]; then
+  echo "demo report mismatch"
+  printf '%s\n' "$demo_block"
   exit 1
 fi
-grep -q 'Empty comment.' <<<"$empty_out"
-cmp -s "$proto/README.md" "$proto/projects/demo/README.md"
+grep -qxF 'clean: current' <<<"$upd_out"
+if grep -qxF 'clean: updated' <<<"$upd_out"; then
+  echo "matching project was updated"
+  printf '%s\n' "$upd_out"
+  exit 1
+fi
+grep -qxF 'plain: updated' <<<"$upd_out"
 [[ "$(git -C "$proto/projects/demo" rev-parse HEAD)" == "$demo_rev" ]]
-note="sync note"
-printf 'non\nOui\n%s\n' "$note" | bash "$proto/scripts/update.sh" >/dev/null
-[[ "$(git -C "$proto/projects/demo" log -1 --format=%s)" == "$note" ]]
-[[ "$(git --git-dir="$proj_bare" log -1 --format=%s)" == "$note" ]]
 [[ "$(git -C "$proto/projects/clean" rev-parse HEAD)" == "$clean_rev" ]]
+[[ "$(git --git-dir="$proj_bare" log -1 --format=%s)" == "init" ]]
 [[ "$(git -C "$proto" log -1 --format=%s)" == "pulled" ]]
+if ! second_out="$(bash "$proto/scripts/update.sh" </dev/null 2>&1)"; then
+  echo "second update failed"
+  printf '%s\n' "$second_out"
+  exit 1
+fi
+grep -qxF 'demo: current' <<<"$second_out"
+grep -qxF 'clean: current' <<<"$second_out"
+grep -qxF 'plain: current' <<<"$second_out"
+if grep -qxF 'demo: updated' <<<"$second_out"; then
+  echo "second run updated demo"
+  printf '%s\n' "$second_out"
+  exit 1
+fi
+[[ "$(cat "$proto/projects/demo/README.md")" == "old readme" ]]
+[[ "$(git -C "$proto/projects/demo" rev-parse HEAD)" == "$demo_rev" ]]
 [[ "$(cat "$proto/projects/demo/FOREIGN")" == "foreign" ]]
 
 bad="$work/bad-proto"
@@ -756,10 +810,15 @@ git -C "$badproj" commit -m init >/dev/null
 git -C "$badproj" remote add origin "$work/missing-remote.git"
 git -C "$badproj" config branch.main.remote origin
 git -C "$badproj" config branch.main.merge refs/heads/main
-if printf 'Non\nOui\nfail-push\n' | bash "$bad/scripts/update.sh" >/dev/null; then
-  echo "push failure was accepted"
+bad_rev="$(git -C "$badproj" rev-parse HEAD)"
+if ! bad_out="$(bash "$bad/scripts/update.sh" </dev/null 2>&1)"; then
+  echo "bad project remote failed the update"
+  printf '%s\n' "$bad_out"
   exit 1
 fi
+grep -qxF 'bad: updated' <<<"$bad_out"
+grep -qxF '  AGENTS.md' <<<"$bad_out"
+[[ "$(git -C "$badproj" rev-parse HEAD)" == "$bad_rev" ]]
 
 repo="$work/smoke"
 mkdir -p "$repo"

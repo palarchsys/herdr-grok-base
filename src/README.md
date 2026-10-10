@@ -89,15 +89,17 @@ La racine de ce dépôt, ouverte dans Herdr, répond `protocol repo` et n'écrit
 bash scripts/update.sh
 ```
 
-`scripts/update.sh` prend pour racine le parent de `scripts/`. Sans `origin`, il quitte avec le code 1 et affiche `No origin.`. HEAD détaché : il quitte avec le code 1 et affiche `Detached head.`. Le pull est `git pull --ff-only origin` suivi de la branche courante. Aucun amont n'est requis. Un pull qui se termine avec le code 0 continue, même si un autre chemin du protocole est sale. Si le pull échoue et qu'un chemin du protocole reste, le script quitte avec le code 1, affiche `Dirty tree.`, puis liste ces chemins, un par ligne. Si le pull échoue et qu'aucun chemin du protocole ne reste, il affiche l'erreur de git et quitte avec le code 1. `.Trash-1000/` et `.idea/` ne rendent pas l'arbre sale et n'entrent pas dans le commit. Les chemins sous `projects/` ne rendent pas la racine sale. Il ne clone rien et ne déplace aucun fichier étranger.
+`scripts/update.sh` prend pour racine le parent de `scripts/`. Sans `origin`, il quitte avec le code 1 et affiche `No origin.`. HEAD détaché : il quitte avec le code 1 et affiche `Detached head.`. Le pull est `git pull --ff-only origin` suivi de la branche courante. Aucun amont n'est requis. Un pull qui se termine avec le code 0 continue, même si un autre chemin du protocole est sale. Si le pull échoue et qu'un chemin du protocole reste, le script quitte avec le code 1, affiche `Dirty tree.`, puis liste ces chemins, un par ligne. Si le pull échoue et qu'aucun chemin du protocole ne reste, il affiche l'erreur de git et quitte avec le code 1. `.Trash-1000/` et `.idea/` ne rendent pas l'arbre sale. Les chemins sous `projects/` ne rendent pas la racine sale. Il ne clone rien et ne déplace aucun fichier étranger. Il ne lit aucune entrée. Il ne copie pas `README.md`. Il ne fait aucun commit et aucun push.
 
-Chaque dossier de `projects/*` reçoit la même écriture : `AGENTS.md`, les fichiers de `formats/`, `scripts/index-symbols.py`, le schéma `formats/registry.sql`, et les lignes manquantes de `.gitignore`.
+Après un pull réussi, chaque dossier de `projects/*` est rapporté par son nom de base. Le script affiche `<name>: updated` ou `<name>: current`.
 
-Le script pose ensuite deux questions. Il répète chacune jusqu'à `Oui`, `oui`, `O`, `o`, `Non`, `non`, `N` ou `n`.
+Sous `updated`, un chemin relatif par ligne, indenté de deux espaces. Seuls les chemins qui différaient ou qui manquaient sont listés, dans cet ordre : `AGENTS.md`, les `formats/<file>` par nom de base, `scripts/index-symbols.py`, `.gitignore`, `registry.sqlite`. Un projet `current` ne liste rien.
 
-`Mise a jour des readmes ? Oui/Non :` — Oui copie le `README.md` de la racine sur chaque `projects/<name>/README.md`. Non passe à la question suivante.
+`AGENTS.md`, chaque fichier de `formats/` et `scripts/index-symbols.py` sont copiés seulement lorsqu'ils manquent ou que les octets diffèrent. Des octets identiques ne sont pas recopiés. Les autres fichiers du projet restent.
 
-`Commit et push vers le depot ? Oui/Non :` — Oui demande `Commentaire : `. Un commentaire vide quitte avec le code 1. Pour la racine et chaque `projects/*` qui contient `.git`, un arbre sale reçoit un commit avec ce message, puis `git push`. La racine fait `git add -A` sans `projects/`, `.Trash-1000/` ni `.idea/`. Chaque projet fait `git add -A`. Un dépôt propre est ignoré. Un push qui échoue quitte avec le code 1. Non quitte avec le code 0.
+Un `registry.sqlite` absent est créé depuis `formats/registry.sql` et listé. Une base déjà présente reçoit ce schéma, n'est pas listée, et ne suffit pas à rendre le projet `updated`.
+
+`.gitignore` conserve ses autres lignes. Il est listé seulement si `registry.sqlite`, `registry.sqlite-journal`, `registry.sqlite-wal` ou `registry.sqlite-shm` manquait et a été ajouté. Le script ne remplace pas `.gitignore` par un autre fichier.
 
 `scripts/check.sh` ferme, avant de supprimer son dossier temporaire, chaque workspace Herdr dont `checkout_path` ou `repo_root` est dans ce dossier. Il ne ferme aucun autre workspace. Le test smoke retire toujours le worktree lié avec `herdr worktree remove`, puis vérifie qu'aucun workspace du dossier temporaire ne reste.
 
