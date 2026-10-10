@@ -10,29 +10,46 @@ if ! git -C "$root" remote get-url origin >/dev/null 2>&1; then
 fi
 
 # projects/ holds nested checkouts. Their files are not the protocol tree.
-protocol_dirty() {
+porcelain_path() {
+  local path="${1:3}"
+  if [[ "$path" == *" -> "* ]]; then
+    path="${path##* -> }"
+  fi
+  path="${path#\"}"
+  path="${path%\"}"
+  printf '%s\n' "$path"
+}
+
+protocol_dirty_paths() {
   local line path
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ -n "$line" ]] || continue
-    path="${line:3}"
-    if [[ "$path" == *" -> "* ]]; then
-      path="${path##* -> }"
-    fi
-    path="${path#\"}"
-    path="${path%\"}"
+    path="$(porcelain_path "$line")"
     case "$path" in
       projects|projects/*) continue ;;
     esac
-    return 0
+    printf '%s\n' "$path"
   done < <(git -C "$root" status --porcelain)
-  return 1
 }
 
-if protocol_dirty; then
-  echo "Dirty tree."
+protocol_dirty() {
+  [[ -n "$(protocol_dirty_paths)" ]]
+}
+
+if ! pull_out="$(git -C "$root" pull --ff-only 2>&1)"; then
+  if protocol_dirty; then
+    echo "Dirty tree."
+    protocol_dirty_paths
+    exit 1
+  fi
+  if [[ -n "$pull_out" ]]; then
+    printf '%s\n' "$pull_out"
+  fi
   exit 1
 fi
-git -C "$root" pull --ff-only
+if [[ -n "$pull_out" ]]; then
+  printf '%s\n' "$pull_out"
+fi
 
 append_ignore() {
   local file="$1" line

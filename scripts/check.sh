@@ -503,6 +503,59 @@ if dirty_out="$(printf 'Non\n' | bash "$dirty/scripts/update.sh")"; then
 fi
 grep -q 'Dirty tree.' <<<"$dirty_out"
 
+same="$work/same"
+same_bare="$work/same.git"
+mkdir -p "$same/scripts"
+cp "$root/scripts/update.sh" "$same/scripts/update.sh"
+git init --bare -b main "$same_bare" >/dev/null
+git -C "$same" init -b main >/dev/null
+sync_id "$same"
+git -C "$same" remote add origin "$same_bare"
+printf 'base\n' > "$same/BASE"
+git -C "$same" add BASE scripts/update.sh
+git -C "$same" commit -m init >/dev/null
+git -C "$same" push -u origin main >/dev/null
+printf 'dirty\n' > "$same/DIRTY"
+if ! same_out="$(printf 'Non\nNon\n' | bash "$same/scripts/update.sh")"; then
+  echo "up-to-date dirty tree was rejected"
+  printf '%s\n' "$same_out"
+  exit 1
+fi
+if grep -q 'Dirty tree.' <<<"$same_out"; then
+  echo "up-to-date dirty tree printed Dirty tree."
+  printf '%s\n' "$same_out"
+  exit 1
+fi
+
+clash="$work/clash"
+clash_bare="$work/clash.git"
+clash_other="$work/clash-other"
+mkdir -p "$clash/scripts"
+cp "$root/scripts/update.sh" "$clash/scripts/update.sh"
+git init --bare -b main "$clash_bare" >/dev/null
+git -C "$clash" init -b main >/dev/null
+sync_id "$clash"
+git -C "$clash" remote add origin "$clash_bare"
+printf 'base\n' > "$clash/TRACK"
+git -C "$clash" add TRACK scripts/update.sh
+git -C "$clash" commit -m init >/dev/null
+git -C "$clash" push -u origin main >/dev/null
+git clone "$clash_bare" "$clash_other" >/dev/null
+sync_id "$clash_other"
+printf 'origin\n' > "$clash_other/TRACK"
+git -C "$clash_other" add TRACK
+git -C "$clash_other" commit -m ahead >/dev/null
+git -C "$clash_other" push origin main >/dev/null
+printf 'local-dirty\n' > "$clash/TRACK"
+if clash_out="$(printf 'Non\nNon\n' | bash "$clash/scripts/update.sh")"; then
+  echo "blocked pull was accepted"
+  printf '%s\n' "$clash_out"
+  exit 1
+fi
+grep -q 'Dirty tree.' <<<"$clash_out"
+grep -qxF 'TRACK' <<<"$clash_out"
+[[ "$(cat "$clash/TRACK")" == "local-dirty" ]]
+
 proto="$work/proto"
 bare="$work/proto.git"
 proj_bare="$work/demo.git"

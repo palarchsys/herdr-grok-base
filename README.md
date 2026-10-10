@@ -89,7 +89,7 @@ La racine de ce dépôt, ouverte dans Herdr, répond `protocol repo` et n'écrit
 bash scripts/update.sh
 ```
 
-`scripts/update.sh` prend pour racine le parent de `scripts/`. Il lance `git pull --ff-only`. Sans `origin`, ou si l'arbre est sale, il quitte avec le code 1 et dit pourquoi. Les fichiers sous `projects/` ne rendent pas la racine sale : ce sont les projets. Il ne clone rien et ne déplace aucun fichier étranger.
+`scripts/update.sh` prend pour racine le parent de `scripts/`. Sans `origin`, il quitte avec le code 1 et affiche `No origin.`. Il lance `git pull --ff-only`. Un arbre sale n'arrête pas le script lorsque `git pull --ff-only` réussit. Si le pull échoue parce que l'arbre du protocole est sale, le script quitte avec le code 1, affiche `Dirty tree.`, puis liste ces chemins, un par ligne. Si le pull échoue et que l'arbre du protocole est propre, il affiche l'erreur de git et quitte avec le code 1. Les chemins sous `projects/` ne rendent pas la racine sale. Il ne clone rien et ne déplace aucun fichier étranger.
 
 Chaque dossier de `projects/*` reçoit la même écriture : `AGENTS.md`, les fichiers de `formats/`, `scripts/index-symbols.py`, le schéma `formats/registry.sql`, et les lignes manquantes de `.gitignore`.
 
