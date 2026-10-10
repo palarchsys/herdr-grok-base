@@ -527,6 +527,94 @@ if grep -q 'Dirty tree.' <<<"$same_out"; then
   exit 1
 fi
 
+noise="$work/noise"
+noise_bare="$work/noise.git"
+mkdir -p "$noise/scripts" "$noise/.Trash-1000" "$noise/.idea"
+cp "$root/scripts/update.sh" "$noise/scripts/update.sh"
+git init --bare -b main "$noise_bare" >/dev/null
+git -C "$noise" init -b main >/dev/null
+sync_id "$noise"
+git -C "$noise" remote add origin "$noise_bare"
+printf 'base\n' > "$noise/BASE"
+git -C "$noise" add BASE scripts/update.sh
+git -C "$noise" commit -m init >/dev/null
+git -C "$noise" push origin main >/dev/null
+git -C "$noise" config --unset branch.main.remote || true
+git -C "$noise" config --unset branch.main.merge || true
+if git -C "$noise" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
+  echo "noise fixture still has an upstream"
+  exit 1
+fi
+printf 'trash\n' > "$noise/.Trash-1000/files"
+printf 'idea\n' > "$noise/.idea/workspace.xml"
+if ! noise_out="$(printf 'Non\nNon\n' | bash "$noise/scripts/update.sh")"; then
+  echo "trash and idea without upstream were rejected"
+  printf '%s\n' "$noise_out"
+  exit 1
+fi
+if grep -q 'Dirty tree.' <<<"$noise_out"; then
+  echo "trash and idea printed Dirty tree."
+  printf '%s\n' "$noise_out"
+  exit 1
+fi
+printf 'keep\n' > "$noise/KEEP"
+git -C "$noise" push -u origin main >/dev/null
+if ! keep_out="$(printf 'Non\nOui\nkeep-note\n' | bash "$noise/scripts/update.sh")"; then
+  echo "commit with trash and idea was rejected"
+  printf '%s\n' "$keep_out"
+  exit 1
+fi
+[[ "$(git -C "$noise" log -1 --format=%s)" == "keep-note" ]]
+git -C "$noise" ls-tree -r --name-only HEAD | grep -qxF 'KEEP'
+keep_names="$(git -C "$noise" ls-tree -r --name-only HEAD)"
+if grep -F '.Trash-1000' <<<"$keep_names" || grep -F '.idea' <<<"$keep_names"; then
+  echo "trash or idea was committed"
+  exit 1
+fi
+
+trash_only="$work/trash-only"
+mkdir -p "$trash_only/scripts" "$trash_only/.Trash-1000"
+cp "$root/scripts/update.sh" "$trash_only/scripts/update.sh"
+git -C "$trash_only" init -b main >/dev/null
+sync_id "$trash_only"
+git -C "$trash_only" add scripts/update.sh
+git -C "$trash_only" commit -m init >/dev/null
+git -C "$trash_only" remote add origin "$work/missing-trash.git"
+printf 't\n' > "$trash_only/.Trash-1000/x"
+if trash_out="$(printf 'Non\n' | bash "$trash_only/scripts/update.sh")"; then
+  echo "trash-only missing remote was accepted"
+  printf '%s\n' "$trash_out"
+  exit 1
+fi
+if grep -q 'Dirty tree.' <<<"$trash_out"; then
+  echo "trash-only missing remote printed Dirty tree."
+  printf '%s\n' "$trash_out"
+  exit 1
+fi
+[[ -n "$trash_out" ]]
+
+det="$work/detached"
+mkdir -p "$det/scripts"
+cp "$root/scripts/update.sh" "$det/scripts/update.sh"
+git -C "$det" init -b main >/dev/null
+sync_id "$det"
+printf 'd\n' > "$det/D"
+git -C "$det" add D scripts/update.sh
+git -C "$det" commit -m init >/dev/null
+git -C "$det" remote add origin "$work/missing-detached.git"
+git -C "$det" checkout --detach >/dev/null 2>&1
+if det_out="$(bash "$det/scripts/update.sh" </dev/null)"; then
+  echo "detached head was accepted"
+  printf '%s\n' "$det_out"
+  exit 1
+fi
+grep -q 'Detached head.' <<<"$det_out"
+if grep -q 'Dirty tree.' <<<"$det_out"; then
+  echo "detached head printed Dirty tree."
+  printf '%s\n' "$det_out"
+  exit 1
+fi
+
 clash="$work/clash"
 clash_bare="$work/clash.git"
 clash_other="$work/clash-other"
