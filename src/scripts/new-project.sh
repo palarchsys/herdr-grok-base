@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Create or adopt a project. Never overwrite an existing file. Never move source.
+# Create or adopt a project. Overwrite protocol files. Move other root entries into src/.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -69,31 +69,30 @@ else
   fi
 fi
 
-mkdir -p "$dest"/{requests,configs/sources,agents/closed,modules,src,formats,rules}
+mkdir -p "$dest"/{requests,configs/sources,agents/closed,modules,src,formats,rules,scripts}
 
-if [[ ! -f "$dest/AGENTS.md" ]]; then
+if [[ -f "$dest/AGENTS.md" ]]; then
   cp "$root/AGENTS.md" "$dest/AGENTS.md"
+  echo "AGENTS.md updated"
 else
-  echo "AGENTS.md kept"
+  cp "$root/AGENTS.md" "$dest/AGENTS.md"
+  echo "AGENTS.md installed"
 fi
 
-copied=0
-kept=0
+formats_existed=0
 shopt -s nullglob
 for srcf in "$root/formats"/*; do
   base="$(basename "$srcf")"
   if [[ -e "$dest/formats/$base" ]]; then
-    kept=1
-  else
-    cp -R "$srcf" "$dest/formats/$base"
-    copied=1
+    formats_existed=1
   fi
+  cp -f "$srcf" "$dest/formats/$base"
 done
 shopt -u nullglob
-if [[ "$copied" -eq 0 && "$kept" -eq 1 ]]; then
-  echo "formats/ kept"
-elif [[ "$copied" -eq 1 && "$kept" -eq 1 ]]; then
-  echo "formats/ missing files copied"
+if [[ "$formats_existed" -eq 1 ]]; then
+  echo "formats updated"
+else
+  echo "formats installed"
 fi
 
 if [[ ! -f "$dest/registry.sqlite" ]]; then
@@ -104,14 +103,31 @@ else
   echo "registry.sqlite kept, schema ensured"
 fi
 
-if [[ ! -f "$dest/.gitignore" ]]; then
-  cat > "$dest/.gitignore" << 'EOF'
-registry.sqlite
-registry.sqlite-journal
-registry.sqlite-wal
-registry.sqlite-shm
-EOF
-fi
+append_ignore() {
+  local file="$1" line
+  local lines=(
+    registry.sqlite
+    registry.sqlite-journal
+    registry.sqlite-wal
+    registry.sqlite-shm
+  )
+  if [[ ! -f "$file" ]]; then
+    printf '%s\n' "${lines[@]}" > "$file"
+    return 0
+  fi
+  for line in "${lines[@]}"; do
+    if grep -qxF "$line" "$file"; then
+      continue
+    fi
+    if [[ -s "$file" ]]; then
+      printf '\n%s\n' "$line" >> "$file"
+    else
+      printf '%s\n' "$line" >> "$file"
+    fi
+  done
+}
+
+append_ignore "$dest/.gitignore"
 
 if [[ ! -d "$dest/.git" ]]; then
   git -C "$dest" init -b main
@@ -186,15 +202,63 @@ classify() {
   glob="$rel"
 }
 
-mkdir -p "$dest/scripts"
-if [[ ! -f "$dest/scripts/index-symbols.py" ]]; then
-  cp "$root/scripts/index-symbols.py" "$dest/scripts/index-symbols.py"
+if [[ -f "$dest/scripts/index-symbols.py" ]]; then
+  cp -f "$root/scripts/index-symbols.py" "$dest/scripts/index-symbols.py"
+  echo "index-symbols.py updated"
 else
-  echo "scripts/index-symbols.py kept"
+  cp "$root/scripts/index-symbols.py" "$dest/scripts/index-symbols.py"
+  echo "index-symbols.py installed"
 fi
 
+is_tracked() {
+  git -C "$dest" ls-files --error-unmatch -- "$1" >/dev/null 2>&1
+}
+
+move_entry() {
+  local from_rel="$1" to_rel="$2" name="$3"
+  if [[ -e "$dest/$to_rel" ]]; then
+    echo "left in place: $name"
+    return 0
+  fi
+  mkdir -p "$(dirname "$dest/$to_rel")"
+  if is_tracked "$from_rel"; then
+    git -C "$dest" mv -- "$from_rel" "$to_rel"
+  else
+    mv -- "$dest/$from_rel" "$dest/$to_rel"
+  fi
+}
+
+move_foreign() {
+  local entry name dotglob_was=0 nullglob_was=0
+  shopt -q dotglob && dotglob_was=1
+  shopt -q nullglob && nullglob_was=1
+  shopt -s nullglob dotglob
+  for entry in "$dest"/*; do
+    name="$(basename "$entry")"
+    case "$name" in
+      .git|.gitignore|AGENTS.md|formats|rules|requests|configs|agents|modules|src|scripts|registry.sqlite|registry.sqlite-journal|registry.sqlite-wal|registry.sqlite-shm)
+        continue
+        ;;
+    esac
+    move_entry "$name" "src/$name" "$name"
+  done
+  for entry in "$dest/scripts"/*; do
+    name="$(basename "$entry")"
+    [[ "$name" == "index-symbols.py" ]] && continue
+    move_entry "scripts/$name" "src/scripts/$name" "$name"
+  done
+  if [[ "$dotglob_was" -eq 0 ]]; then
+    shopt -u dotglob
+  fi
+  if [[ "$nullglob_was" -eq 0 ]]; then
+    shopt -u nullglob
+  fi
+}
+
+move_foreign
+
 if [[ "$adopt" -eq 1 ]]; then
-  echo "Indexing existing files. Source is not moved."
+  echo "Indexing existing files."
   declare -A mod_globs=()
   list="$(mktemp)"
   rg_rc=0
@@ -257,7 +321,7 @@ EOF
     done
   fi
   if [[ ! -f "$dest/requests/r-adopt-0.md" ]]; then
-    body_text='Adopted existing tree. Files indexed. Source not moved.'
+    body_text='Adopted existing tree. Files indexed. Foreign files moved into src.'
     adopt_hash="$(printf '%s' "$body_text" | sha256sum | cut -c1-12)"
     cat > "$dest/requests/r-adopt-0.md" << EOF
 id: r-adopt-0
