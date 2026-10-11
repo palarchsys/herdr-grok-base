@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Create or adopt a project. Overwrite protocol files. Move other root entries into src/.
+# Create or adopt a project. Overwrite protocol files. Move product files into src/.
+# The product repository is src/. Development files stay at the workspace root.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -140,8 +141,16 @@ ensure_ignore_line() {
 }
 
 note_nested() {
-  local name="$1" rel="$2"
-  ensure_ignore_line "$dest/.gitignore" "/${rel}/"
+  local name="$1" rel="$2" ignore_file line
+  if [[ "$rel" == src/* ]]; then
+    ignore_file="$dest/src/.gitignore"
+    line="/${rel#src/}/"
+  else
+    ignore_file="$dest/.gitignore"
+    line="/${rel}/"
+  fi
+  mkdir -p "$(dirname "$ignore_file")"
+  ensure_ignore_line "$ignore_file" "$line"
   echo "nested git: $rel"
   [[ "$name" =~ $module_re ]] || return 0
   nested_kind["$name"]=nested
@@ -149,9 +158,9 @@ note_nested() {
 }
 
 restore_mode_only() {
-  local line added deleted rest content=0 mode=0
-  [[ -e "$dest/.git" ]] || return 0
-  git -C "$dest" rev-parse --verify HEAD >/dev/null 2>&1 || return 0
+  local line added deleted rest content=0 mode=0 repo="$dest/src"
+  [[ -e "$repo/.git" ]] || return 0
+  git -C "$repo" rev-parse --verify HEAD >/dev/null 2>&1 || return 0
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ -n "$line" ]] || continue
     if [[ "$line" == *" => "* ]]; then
@@ -166,11 +175,11 @@ restore_mode_only() {
     else
       content=1
     fi
-  done < <(git -C "$dest" diff --numstat; git -C "$dest" diff --cached --numstat)
+  done < <(git -C "$repo" diff --numstat; git -C "$repo" diff --cached --numstat)
   if [[ "$content" -eq 1 || "$mode" -eq 0 ]]; then
     return 0
   fi
-  git -C "$dest" restore --source=HEAD --worktree --staged -- .
+  git -C "$repo" restore --source=HEAD --worktree --staged -- .
   mode=0
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ -n "$line" ]] || continue
@@ -181,9 +190,9 @@ restore_mode_only() {
     if [[ "$added" == "0" && "$deleted" == "0" ]]; then
       mode=1
     fi
-  done < <(git -C "$dest" diff --numstat; git -C "$dest" diff --cached --numstat)
+  done < <(git -C "$repo" diff --numstat; git -C "$repo" diff --cached --numstat)
   if [[ "$mode" -eq 1 ]]; then
-    git -C "$dest" config core.fileMode false
+    git -C "$repo" config core.fileMode false
   fi
 }
 
@@ -224,34 +233,6 @@ forbidden:
 EOF
   } > "$moddir/MODULE.md"
 }
-
-append_ignore "$dest/.gitignore"
-
-if [[ ! -d "$dest/.git" ]]; then
-  git -C "$dest" init -b main
-else
-  echo "git kept"
-fi
-
-if [[ "$existed" -eq 1 ]]; then
-  origin_exists=0
-  if git -C "$dest" remote get-url origin >/dev/null 2>&1; then
-    origin_exists=1
-  fi
-  if [[ "$repo_exists" -eq 0 ]]; then
-    if [[ "$origin_exists" -eq 0 ]]; then
-      gh repo create "$name" --private --source "$dest" --remote origin
-    else
-      gh repo create "$name" --private --source "$dest"
-    fi
-  elif [[ "$origin_exists" -eq 0 ]]; then
-    url="$(gh repo view "$login/$name" --json url --jq .url)" || exit 1
-    if [[ -z "$url" ]]; then
-      exit 1
-    fi
-    git -C "$dest" remote add origin "${url}.git"
-  fi
-fi
 
 add_glob() {
   local module="$1" glob="$2" cur line
@@ -308,10 +289,6 @@ else
   echo "index-symbols.py installed"
 fi
 
-is_tracked() {
-  git -C "$dest" ls-files --error-unmatch -- "$1" >/dev/null 2>&1
-}
-
 move_entry() {
   local from_rel="$1" to_rel="$2" name="$3"
   if [[ -e "$dest/$to_rel" ]]; then
@@ -319,10 +296,52 @@ move_entry() {
     return 0
   fi
   mkdir -p "$(dirname "$dest/$to_rel")"
-  if is_tracked "$from_rel"; then
-    git -C "$dest" mv -- "$from_rel" "$to_rel"
-  else
-    mv -- "$dest/$from_rel" "$dest/$to_rel"
+  mv -- "$dest/$from_rel" "$dest/$to_rel"
+}
+
+park_product_gitignore() {
+  [[ -e "$dest/src/.git" ]] && return 0
+  [[ -f "$dest/.gitignore" && ! -e "$dest/src/.gitignore" ]] || return 0
+  mkdir -p "$dest/src"
+  mv -- "$dest/.gitignore" "$dest/src/.gitignore"
+}
+
+relocate_product_git() {
+  if [[ -e "$dest/src/.git" ]]; then
+    echo "product git kept"
+    return 0
+  fi
+  if [[ -d "$dest/.git" ]]; then
+    mv -- "$dest/.git" "$dest/src/.git"
+    echo "product git: src"
+    return 0
+  fi
+  if [[ -e "$dest/.git" ]]; then
+    echo "product git kept"
+    return 0
+  fi
+  git -C "$dest/src" init -b main
+  echo "product git: src"
+}
+
+attach_origin() {
+  local origin_exists=0 url
+  [[ "$existed" -eq 1 ]] || return 0
+  if git -C "$dest/src" remote get-url origin >/dev/null 2>&1; then
+    origin_exists=1
+  fi
+  if [[ "$repo_exists" -eq 0 ]]; then
+    if [[ "$origin_exists" -eq 0 ]]; then
+      gh repo create "$name" --private --source "$dest/src" --remote origin
+    else
+      gh repo create "$name" --private --source "$dest/src"
+    fi
+  elif [[ "$origin_exists" -eq 0 ]]; then
+    url="$(gh repo view "$login/$name" --json url --jq .url)" || exit 1
+    if [[ -z "$url" ]]; then
+      exit 1
+    fi
+    git -C "$dest/src" remote add origin "${url}.git"
   fi
 }
 
@@ -364,21 +383,26 @@ move_foreign() {
 declare -A nested_kind=()
 declare -A nested_owns=()
 
+park_product_gitignore
 move_foreign
 
 if [[ -d "$dest/src" ]]; then
   shopt -s nullglob
   for entry in "$dest/src"/*; do
-    name="$(basename "$entry")"
+    entry_name="$(basename "$entry")"
     if [[ -L "$entry" ]]; then
       continue
     fi
     if [[ -e "$entry/.git" ]]; then
-      note_nested "$name" "src/$name"
+      note_nested "$entry_name" "src/$entry_name"
     fi
   done
   shopt -u nullglob
 fi
+
+relocate_product_git
+append_ignore "$dest/.gitignore"
+attach_origin
 
 if [[ "$adopt" -eq 1 ]]; then
   echo "Indexing existing files."

@@ -29,7 +29,7 @@ Default: one agent writes `modules/<module>/PLAN.md`, then the code, in one work
 `laws:` paths are pasted in full in the first prompt. They do not count toward the 3 excerpts. Empty means the prompt does not grow.
 `imports:` module ids. Each is merged before this module starts. The prompt receives at most 50 file names: paths named in the task, or the first 50 sorted, then `<n> more`. Empty, with disjoint owns, means the agents start together.
 `check:` command run by the orchestrator after the commit, before the merge. Empty means no command.
-`publish:` command for a later `git` message. Empty means `git add` the owns, `git commit` with the given comment, `git push` in the project repository. Set means that command receives the comment.
-`git: parent` commits and merges in the project repository.
-`git: nested` is set only when that directory has its own `.git`. The worktree and the commit stay in that repository. The parent merge skips those paths.
+`publish:` command for a later `git` message. Empty means, in `src/`, `git add` the owns with a leading `src/` removed, `git commit` with the given comment, `git push`. Development files are not added. `modules/<module>/PLAN.md` stays local. Set means that command receives the comment.
+`git: parent` commits and merges in the product repository `src/`. The worktree is `herdr worktree create --cwd src`. A workspace path `src/<rest>` is `<rest>` in that checkout.
+`git: nested` is set only when that directory has its own `.git` and is not the product repository. The worktree and the commit stay in that repository. The product merge skips those paths.
 The worker may read `rules/AGENT-*.md` and its `laws:`. It does not read `requests/`, `agents/`, `locks`, or the database.

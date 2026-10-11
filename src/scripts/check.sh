@@ -47,8 +47,16 @@ require_text() {
 
 # shellcheck disable=SC2016
 require_text AGENTS.md 'reply `protocol repo` and stop.'
-require_text AGENTS.md 'herdr worktree create --branch mod-<name> --base main --label <name> --no-focus'
-require_text AGENTS.md 'herdr worktree create --branch mod-<name> --base mod-<module>-plan --label <name> --no-focus'
+# shellcheck disable=SC2016
+require_text AGENTS.md 'The product repository is `src/`.'
+require_text AGENTS.md 'herdr worktree create --cwd src --branch mod-<name> --base main --label <name> --no-focus'
+require_text AGENTS.md 'herdr worktree create --cwd src --branch mod-<name> --base mod-<module>-plan --label <name> --no-focus'
+require_text AGENTS.md 'git -C src merge --no-ff mod-<module>'
+require_text formats/module.md 'commits and merges in the product repository'
+# shellcheck disable=SC2016
+require_text README.md 'Le dépôt du produit est `src/`.'
+# shellcheck disable=SC2016
+require_text README.md 'Pas de `git mv`.'
 require_text AGENTS.md 'herdr agent start <name> --kind grok --pane <pane> --'
 require_text AGENTS.md 'herdr agent prompt <name> <text> --wait --until idle --until done --timeout 600000'
 require_text AGENTS.md 'wall time is the slowest ready module, not the sum.'
@@ -339,8 +347,10 @@ fresh_dir="$root/projects/$fresh"
 [[ -f "$fresh_dir/AGENTS.md" ]]
 [[ -f "$fresh_dir/formats/symbols.md" ]]
 [[ -f "$fresh_dir/registry.sqlite" ]]
-[[ "$(git -C "$fresh_dir" symbolic-ref --short HEAD)" == "main" ]]
-git -C "$fresh_dir" check-ignore -q registry.sqlite
+[[ ! -e "$fresh_dir/.git" ]]
+[[ -d "$fresh_dir/src/.git" ]]
+[[ "$(git -C "$fresh_dir/src" symbolic-ref --short HEAD)" == "main" ]]
+grep -qxF 'registry.sqlite' "$fresh_dir/.gitignore"
 [[ ! -e "$fresh_dir/requests/r-adopt-0.md" ]]
 grep -qF "repo create $fresh --private --clone" "$HOME/gh.log"
 if grep -F -e '--public' -e '--push' "$HOME/gh.log"; then
@@ -360,7 +370,7 @@ grep -q 'index-symbols.py installed' <<<"$fresh_out"
 second="$(run_new "$fresh" "")"
 grep -q "AGENTS.md updated" <<<"$second"
 cmp -s "$root/AGENTS.md" "$fresh_dir/AGENTS.md"
-[[ -z "$(ls -A "$fresh_dir/src")" ]]
+[[ "$(ls -A "$fresh_dir/src")" == ".git" ]]
 
 present="cln${RANDOM}"
 names+=("$present")
@@ -370,6 +380,13 @@ present_dir="$root/projects/$present"
 grep -qF "repo clone tester/${present} ${present_dir}" "$HOME/gh.log"
 [[ ! -e "$present_dir/CLONE_MARKER" ]]
 [[ "$(cat "$present_dir/src/CLONE_MARKER")" == "clone-marker" ]]
+[[ ! -e "$present_dir/.git" ]]
+[[ -d "$present_dir/src/.git" ]]
+grep -qx '?? CLONE_MARKER' <<<"$(git -C "$present_dir/src" status --porcelain)"
+if git -C "$present_dir/src" status --porcelain | grep -q 'src/'; then
+  echo "clone status contains a src/ prefix"
+  exit 1
+fi
 [[ -f "$present_dir/AGENTS.md" ]]
 [[ -f "$present_dir/requests/r-adopt-0.md" ]]
 if grep -qF "repo create ${present}" "$HOME/gh.log"; then
@@ -386,7 +403,7 @@ mkdir -p "$placed_dir/scripts"
 printf 'helper\n' >"$placed_dir/scripts/helper.sh"
 run_new "$placed" "$placed_dir" >/dev/null
 placed_abs="$(cd "$placed_dir" && pwd)"
-grep -qF "repo create ${placed} --private --source ${placed_abs} --remote origin" "$HOME/gh.log"
+grep -qF "repo create ${placed} --private --source ${placed_abs}/src --remote origin" "$HOME/gh.log"
 if grep -qF "repo clone tester/${placed}" "$HOME/gh.log"; then
   echo "existing directory was cloned: $placed"
   exit 1
@@ -396,7 +413,13 @@ fi
 [[ ! -e "$placed_dir/scripts/helper.sh" ]]
 [[ "$(cat "$placed_dir/src/scripts/helper.sh")" == "helper" ]]
 [[ -f "$placed_dir/scripts/index-symbols.py" ]]
-grep -qxF 'keep me' "$placed_dir/.gitignore"
+[[ ! -e "$placed_dir/.git" ]]
+[[ -d "$placed_dir/src/.git" ]]
+grep -qxF 'keep me' "$placed_dir/src/.gitignore"
+if grep -qxF 'keep me' "$placed_dir/.gitignore"; then
+  echo "product gitignore stayed at the workspace root"
+  exit 1
+fi
 grep -qxF 'registry.sqlite' "$placed_dir/.gitignore"
 grep -qxF 'registry.sqlite-journal' "$placed_dir/.gitignore"
 grep -qxF 'registry.sqlite-wal' "$placed_dir/.gitignore"
@@ -486,7 +509,9 @@ adopt_hash="$(sqlite3 "$adopt/registry.sqlite" "SELECT hash FROM requests WHERE 
 [[ "$adopt_hash" =~ ^[0-9a-f]{12}$ ]]
 expect="$(printf '%s' 'Adopted existing tree. Files indexed. Foreign files moved into src.' | sha256sum | cut -c1-12)"
 [[ "$adopt_hash" == "$expect" ]]
-git -C "$adopt" check-ignore -q registry.sqlite
+[[ ! -e "$adopt/.git" ]]
+[[ -d "$adopt/src/.git" ]]
+grep -qxF 'registry.sqlite' "$adopt/.gitignore"
 
 tracked="$work/tracked"
 mkdir -p "$tracked"
@@ -497,7 +522,19 @@ git -C "$tracked" -c user.email=smoke@example.com -c user.name=smoke commit -m i
 run_new tracked "$tracked" >/dev/null
 [[ ! -e "$tracked/TRACKED" ]]
 [[ "$(cat "$tracked/src/TRACKED")" == "tracked-body" ]]
-grep -q 'TRACKED -> src/TRACKED' <<<"$(git -C "$tracked" status --porcelain)"
+[[ ! -e "$tracked/.git" ]]
+[[ -d "$tracked/src/.git" ]]
+[[ "$(git -C "$tracked/src" ls-files)" == "TRACKED" ]]
+if git -C "$tracked" rev-parse --show-toplevel >/dev/null 2>&1; then
+  echo "workspace root is still the product repository"
+  exit 1
+fi
+tracked_status="$(git -C "$tracked/src" status --porcelain)"
+if grep -q 'src/' <<<"$tracked_status" || grep -q 'TRACKED ->' <<<"$tracked_status"; then
+  echo "product status would publish a src/ prefix"
+  printf '%s\n' "$tracked_status"
+  exit 1
+fi
 
 nest="$work/nest"
 mkdir -p "$nest/vendor" "$nest/shared"
@@ -533,17 +570,19 @@ if sqlite3 "$nest/registry.sqlite" "SELECT path FROM files WHERE path LIKE 'vend
 fi
 
 modes="$work/modes"
-mkdir -p "$modes/src"
+mkdir -p "$modes"
 git -C "$modes" init -b main >/dev/null
-printf 'body\n' > "$modes/src/a.txt"
-git -C "$modes" -c user.email=smoke@example.com -c user.name=smoke add src/a.txt
+printf 'body\n' > "$modes/a.txt"
+git -C "$modes" -c user.email=smoke@example.com -c user.name=smoke add a.txt
 git -C "$modes" -c user.email=smoke@example.com -c user.name=smoke commit -m init >/dev/null
-git -C "$modes" update-index --chmod=+x src/a.txt
+git -C "$modes" update-index --chmod=+x a.txt
 run_new modest "$modes" >/dev/null
+[[ ! -e "$modes/a.txt" ]]
 [[ "$(cat "$modes/src/a.txt")" == "body" ]]
-mode_diff="$(git -C "$modes" diff --numstat; git -C "$modes" diff --cached --numstat)"
+[[ "$(git -C "$modes/src" ls-files)" == "a.txt" ]]
+mode_diff="$(git -C "$modes/src" diff --numstat; git -C "$modes/src" diff --cached --numstat)"
 if [[ -n "$mode_diff" ]]; then
-  [[ "$(git -C "$modes" config --get core.fileMode)" == "false" ]]
+  [[ "$(git -C "$modes/src" config --get core.fileMode)" == "false" ]]
 fi
 
 idx="$work/idx"
